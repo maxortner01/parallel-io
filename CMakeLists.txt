@@ -11,7 +11,7 @@ find_library(PNETCDF pnetcdf)
 find_path(MPICH_INCLUDE_DIR mpi.h)
 
 # Include the current spack view
-include_directories(${MPICH_INCLUDE_DIR}/include)
+include_directories(${MPICH_INCLUDE_DIR})
 
 add_executable(pio main.cpp)
 
