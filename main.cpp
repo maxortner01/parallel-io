@@ -73,34 +73,48 @@ int pncdf_file()
         return 1;
     }
 
-    //exo.test();
-
+    // Read in the names
     const auto names = exo.variable_names().value();
-    //for (const auto& name : names)
-    //    std::cout << name << "\n";
+    for (const auto& name : names)
+        std::cout << name << "\n";
 
-    const auto info = exo.get_variable_info(names[0]);
-    if (info.good())
-    {
-        std::cout << names[0] << "\n";
-        std::cout << "Dimensions:    " << info.value().dimensions << "\n";
-        std::cout << "Attributes:    " << info.value().attributes << "\n";
-        std::cout << "Type:          " << *info.value().type << "\n";
-        
-        if (info.value().dimension_ids.size())
-        {
-            std::cout << "Dimension IDS: ";
-            for (const auto& id : info.value().dimension_ids)
-                std::cout << id << " ";
-            std::cout << "\n";
-        }
-        
-    }
+    const auto info = exo.get_variable_info("eb_names");
+    std::cout << info.value().type << "\n";
+
+    const auto promise = exo.get_variable_values<NC_CHAR>("eb_names");
+    promise.wait_for_completion();
+
+    const auto list = promise.get_strings();
+
+    //std::cout << std::string(promise.value()) << "\n";
+    for (const auto& s : list) std::cout << s << "\n";
+
+    /*
+    // Read in the type
+    const auto info = exo.get_variable_info("vals_elem_var1eb1");
+    std::cout << info.value().type << "\n\n";
+
+    // Create two async reads for variable 1 eb 1 and 2
+    const auto promisea = exo.get_variable_values<NC_DOUBLE>("vals_elem_var1eb1");
+    const auto promiseb = exo.get_variable_values<NC_DOUBLE>("vals_elem_var1eb2");
+    
+    // Wait for them to complete
+    const auto status = promisea.wait_for_completion();
+    const auto status2 = promiseb.wait_for_completion();
+    
+    // Read out the values
+    for (uint32_t i = 0; i < promisea.count(); i++)
+        std::cout << promisea.value()[i] << "\n";
+    
+    std::cout << "\n";
+
+    for (uint32_t i = 0; i < promiseb.count(); i++)
+        std::cout << promiseb.value()[i] << "\n";
 
     const auto inq = exo.inquire();
 
     std::cout << "File info:\nndims: " << inq.value().dimensions << "\nnvars: " << inq.value().variables << "\nngatt: " << inq.value().attributes << "\n";
-
+    */
     exo.close();
 }
 

@@ -4,21 +4,45 @@
 
 #include <string>
 #include <mpi.h>
+#include <functional>
 #include <pnetcdf.h>
 
 // http://cucis.ece.northwestern.edu/projects/PnetCDF/doc/pnetcdf-c
 namespace pio::netcdf
 {
+    template<nc_type _Type>
+    struct Type { };
+
+    template<typename T>
+    using func_ptr = int(*)(int, int, const MPI_Offset*, const MPI_Offset*, T*, int*);
+
+    template<>
+    struct Type<NC_DOUBLE> 
+    { 
+        using type = double; 
+        const static func_ptr<type> func;
+    };
+    
+    template<>
+    struct Type<NC_CHAR> 
+    { 
+        using type = char; 
+        const static func_ptr<type> func;
+    };
+    
+    template<>
+    struct Type<NC_FLOAT> 
+    { 
+        using type = float; 
+        const static func_ptr<type> func;
+    };
+
+    const func_ptr<Type<NC_DOUBLE>::type> Type<NC_DOUBLE>::func = &ncmpi_iget_vara_double;
+    const func_ptr<Type<NC_FLOAT>::type> Type<NC_FLOAT>::func = &ncmpi_iget_vara_float;
+    const func_ptr<Type<NC_CHAR>::type> Type<NC_CHAR>::func = &ncmpi_iget_vara_text;
+    
     struct file
     {
-        enum class data_type : int
-        {
-            CHAR, 
-            DOUBLE, 
-            FLOAT, 
-            INT
-        };
-
         struct info
         {
             int dimensions, variables, attributes;
@@ -26,8 +50,7 @@ namespace pio::netcdf
 
         struct variable
         {
-            int dimensions, attributes;
-            data_type type;
+            int index, dimensions, attributes, type;
             std::vector<int> dimension_ids;
         };
 
@@ -74,30 +97,18 @@ namespace pio::netcdf
         }
 
         io::result<variable>
-        get_variable_info(const std::string& name)
+        get_variable_info(const std::string& name) const
         {
             const auto inq = inquire();
             if (!inq.good()) return { inq.error() };
 
             int index = -1;
-            for (uint32_t i = 0; i < inq.value().variables; i++)
-            {
-                std::string _name;
-                _name.resize(MAX_STR_LENGTH);
-                const auto err = ncmpi_inq_varname(handle, i, &_name[0]);
-                if (err != NC_NOERR) return { err };
-
-                if (_name == name)
-                {
-                    index = i;
-                    break;
-                }
-            }
-
-            if (index < 0) return { index };
+            auto err = ncmpi_inq_varid(handle, name.c_str(), &index);
+            if (err != NC_NOERR || index < 0) return { err };
 
             variable var;
-            auto err = ncmpi_inq_varndims(handle, index, &var.dimensions);
+            var.index = index;
+            err = ncmpi_inq_varndims(handle, index, &var.dimensions);
             if (err != NC_NOERR) return { err };
 
             var.dimension_ids.resize(var.dimensions);
@@ -107,7 +118,7 @@ namespace pio::netcdf
                 handle, 
                 index, 
                 var_name, 
-                (int*)&var.type, 
+                &var.type, 
                 &var.dimensions, 
                 var.dimension_ids.data(), 
                 &var.attributes
@@ -115,6 +126,66 @@ namespace pio::netcdf
             if (err != NC_NOERR) return { err };
 
             return { var };
+        }
+
+        template<nc_type _Type>
+        const io::promise<typename Type<_Type>::type>
+        get_variable_values(const std::string& name) const
+        {
+            const auto info = get_variable_info(name);
+            if (!info.good()) return { info.error() };
+            
+            int nprocs, rank;
+            MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+            MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+
+            auto start = std::vector<MPI_Offset>(info.value().dimensions);
+            auto count = std::vector<MPI_Offset>(info.value().dimensions);
+
+            const auto dim_sizes = get_dimension_lengths().value();
+            start[0] = (dim_sizes[info.value().dimension_ids[0]] / nprocs)*rank;
+            count[0] = (dim_sizes[info.value().dimension_ids[0]] / nprocs);
+            auto var_size = count[0];
+
+            for (uint32_t j = 1; j < info.value().dimensions; j++)
+            {
+                start[j] = 0;
+                count[j] = dim_sizes[info.value().dimension_ids[j]];
+                var_size *= count[j];
+            }
+
+            //err = ncmpi_get_vara_double_all(handle, i, start.data(), count.data(), values.data());
+
+            using type_t = Type<_Type>;
+            io::promise<typename Type<_Type>::type> promise(handle, var_size, 1);
+            const auto err = type_t::func(handle, info.value().index, start.data(), count.data(), promise.value(), promise.requests());
+
+            return promise;
+
+
+            /*
+            using type_t = Type<_Type>;
+            io::promise<typename Type<_Type>::type> promise(handle, 10, 1);
+
+            std::cout << "writing to location " << (size_t)promise.value() << "\n";
+            const auto err = type_t::func(handle, info.value().index, promise.value(), promise.requests());Z
+            
+            return promise;*/
+        }
+
+        io::result<std::vector<MPI_Offset>>
+        get_dimension_lengths() const
+        {
+            const auto inq = inquire();
+            if (!inq.good()) return { inq.error() };
+
+            auto dim_sizes = std::vector<MPI_Offset>(inq.value().dimensions);
+            for (uint32_t i = 0; i < dim_sizes.size(); i++)
+            {
+                auto err = ncmpi_inq_dimlen(handle, i, &dim_sizes[i]);
+                if (err != NC_NOERR) return { err };
+            }
+            return { dim_sizes };
         }
 
         void 
@@ -262,16 +333,4 @@ namespace pio::netcdf
         int handle, err;
         bool _good;
     };
-}
-
-const char* operator*(pio::netcdf::file::data_type t)
-{
-    switch (t)
-    {
-    case pio::netcdf::file::data_type::CHAR:   return "char";
-    case pio::netcdf::file::data_type::DOUBLE: return "double";
-    case pio::netcdf::file::data_type::FLOAT:  return "float";
-    case pio::netcdf::file::data_type::INT:    return "int";
-    default: return "";
-    }
 }
