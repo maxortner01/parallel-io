@@ -65,7 +65,7 @@ int exodus_file()
 
 int pncdf_file()
 {
-    netcdf::file exo("../box-hex-colors.exo", io::access::ro);
+    netcdf::file exo("../box-hex.exo", io::access::ro);
     if (!exo)
     {
         std::cout << "Error opening file: " << exo.error_string() << "\n";
@@ -81,7 +81,7 @@ int pncdf_file()
     const auto info = exo.get_variable_info("eb_names");
     std::cout << info.value().type << "\n";
 
-    const auto promise = exo.get_variable_values<NC_CHAR>("eb_names");
+    const auto promise = exo.get_variable_values<NC_CHAR>("coor_names");
     promise.wait_for_completion();
 
     const auto list = promise.get_strings();
@@ -133,6 +133,9 @@ int main(int argc, char** argv)
     MPI_Get_processor_name(processor_name, &name_len);
 
     printf("Hello from processor %s, rank %d out of %d processors.\n", processor_name, world_rank, world_size); 
+
+    std::tuple<io::TypeList<NC_CHAR, NC_DOUBLE>::types> tu();
+    //io::request_array<NC_CHAR, NC_DOUBLE> array({ 2, 4 });
 
     //return exodus_file();
     return pncdf_file();
