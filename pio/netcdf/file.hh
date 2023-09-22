@@ -3,44 +3,11 @@
 #include "../io.hh"
 
 #include <string>
-#include <mpi.h>
 #include <functional>
-#include <pnetcdf.h>
 
 // http://cucis.ece.northwestern.edu/projects/PnetCDF/doc/pnetcdf-c
 namespace pio::netcdf
 {
-    template<nc_type _Type>
-    struct Type { };
-
-    template<typename T>
-    using func_ptr = int(*)(int, int, const MPI_Offset*, const MPI_Offset*, T*, int*);
-
-    template<>
-    struct Type<NC_DOUBLE> 
-    { 
-        using type = double; 
-        const static func_ptr<type> func;
-    };
-    
-    template<>
-    struct Type<NC_CHAR> 
-    { 
-        using type = char; 
-        const static func_ptr<type> func;
-    };
-    
-    template<>
-    struct Type<NC_FLOAT> 
-    { 
-        using type = float; 
-        const static func_ptr<type> func;
-    };
-
-    const func_ptr<Type<NC_DOUBLE>::type> Type<NC_DOUBLE>::func = &ncmpi_iget_vara_double;
-    const func_ptr<Type<NC_FLOAT>::type> Type<NC_FLOAT>::func = &ncmpi_iget_vara_float;
-    const func_ptr<Type<NC_CHAR>::type> Type<NC_CHAR>::func = &ncmpi_iget_vara_text;
-    
     struct file
     {
         struct info
@@ -129,7 +96,7 @@ namespace pio::netcdf
         }
 
         template<nc_type _Type>
-        const io::promise<typename Type<_Type>::type>
+        const io::promise<typename io::Type<_Type>::type>
         get_variable_values(const std::string& name) const
         {
             const auto info = get_variable_info(name);
@@ -156,8 +123,8 @@ namespace pio::netcdf
 
             //err = ncmpi_get_vara_double_all(handle, i, start.data(), count.data(), values.data());
 
-            using type_t = Type<_Type>;
-            io::promise<typename Type<_Type>::type> promise(handle, var_size, 1);
+            using type_t = io::Type<_Type>;
+            io::promise<typename io::Type<_Type>::type> promise(handle, var_size, 1);
             const auto err = type_t::func(handle, info.value().index, start.data(), count.data(), promise.value(), promise.requests());
 
             return promise;

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <exodusII.h>
 #include <type_traits>
 #include <vector>
 

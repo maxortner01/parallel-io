@@ -65,7 +65,7 @@ int exodus_file()
 
 int pncdf_file()
 {
-    netcdf::file exo("../box-hex-colors.exo", io::access::ro);
+    netcdf::file exo("../box-hex.exo", io::access::ro);
     if (!exo)
     {
         std::cout << "Error opening file: " << exo.error_string() << "\n";
@@ -118,6 +118,19 @@ int pncdf_file()
     exo.close();
 }
 
+template<typename... _Types>
+io::request_array<_Types...>
+get_requests()
+{
+    std::array<uint32_t, sizeof...(_Types)> counts;
+    for (uint32_t i = 0; i < counts.size(); i++)
+        counts[i] = 4;
+
+    io::request_array<_Types...> array(counts);
+
+    return array;
+}
+
 int main(int argc, char** argv)
 {
     MPI_Init(&argc, &argv);
@@ -133,6 +146,14 @@ int main(int argc, char** argv)
     MPI_Get_processor_name(processor_name, &name_len);
 
     printf("Hello from processor %s, rank %d out of %d processors.\n", processor_name, world_rank, world_size); 
+
+    //auto array = get_requests<io::Type<NC_CHAR>, io::Type<NC_DOUBLE>>();
+    //std::cout << (std::size_t)array.get<0>().data.get() << "\n";
+
+    auto array = get_requests<io::Type<NC_CHAR>, io::Type<NC_DOUBLE>>();
+    //io::request_array<io::Type<NC_CHAR>, io::Type<NC_DOUBLE>> array({ 2, 4 });
+    std::cout << (std::size_t)array.get<0>().data.get() << "\n";
+    std::cout << (std::size_t)array.get<1>().data.get() << "\n";
 
     //return exodus_file();
     return pncdf_file();

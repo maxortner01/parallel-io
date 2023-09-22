@@ -1,12 +1,93 @@
 #pragma once
 
-#include <pnetcdf.h>
+#include "external.hh"
+
 #include <sstream>
 #include <vector>
 #include <optional>
+#include <array>
+#include <any>
+#include <memory>
 
 namespace pio::io
 {
+    template<nc_type _Type>
+    struct Type { };
+
+    template<typename T>
+    using func_ptr = int(*)(int, int, const MPI_Offset*, const MPI_Offset*, T*, int*);
+
+    template<>
+    struct Type<NC_DOUBLE> 
+    { 
+        const static nc_type nc = NC_DOUBLE;
+        using type = double; 
+        const static func_ptr<type> func;
+    };
+    
+    template<>
+    struct Type<NC_CHAR> 
+    { 
+        const static nc_type nc = NC_CHAR;
+        using type = char; 
+        const static func_ptr<type> func;
+    };
+    
+    template<>
+    struct Type<NC_FLOAT> 
+    { 
+        const static nc_type nc = NC_FLOAT;
+        using type = float; 
+        const static func_ptr<type> func;
+    };
+
+    const func_ptr<Type<NC_DOUBLE>::type> Type<NC_DOUBLE>::func = &ncmpi_iget_vara_double;
+    const func_ptr<Type<NC_FLOAT>::type> Type<NC_FLOAT>::func = &ncmpi_iget_vara_float;
+    const func_ptr<Type<NC_CHAR>::type> Type<NC_CHAR>::func = &ncmpi_iget_vara_text;
+
+    template<typename _Type>
+    struct request 
+    { 
+        const static nc_type type = _Type::nc;
+
+        using integral_type = typename _Type::type;
+
+        std::shared_ptr<integral_type> data;
+
+        request(uint32_t count) :
+            data((integral_type*)std::calloc(count, sizeof(integral_type)))
+        {   }
+    };
+
+    template<typename... _Types>
+    struct request_array
+    {
+        int ids[sizeof...(_Types)];
+        std::array<std::any, sizeof...(_Types)> requests;
+
+        request_array(const std::array<uint32_t, sizeof...(_Types)>& counts)
+        {
+            emplace<_Types...>(0, counts);
+        }
+
+        template<uint32_t index>
+        auto&
+        get()
+        {
+            using nth_type = std::tuple_element_t<index, std::tuple<_Types...>>;
+            return *std::any_cast<request<nth_type>>(&requests[index]);
+        }
+
+    private:
+        template<typename _Type, typename... _Rest>
+        void emplace(int index, const std::array<uint32_t, sizeof...(_Types)>& counts)
+        {
+            using type = request<_Type>;
+            requests[index] = std::make_any<type>(counts[index]);
+            if constexpr (sizeof...(_Rest)) emplace<_Rest...>(index + 1, counts);
+        }
+    };
+
     template<typename T>
     class promise
     {
