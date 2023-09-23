@@ -75,18 +75,16 @@ int pncdf_file()
 
     // Read in the names
     const auto names = exo.variable_names().value();
-    for (const auto& name : names)
-        std::cout << name << "\n";
+    //for (const auto& name : names)
+    //    std::cout << name << "\n";
 
     const auto info = exo.get_variable_info("eb_names");
-    std::cout << info.value().type << "\n";
 
-    const auto promise = exo.get_variable_values<NC_CHAR>("eb_names");
+    const auto promise = exo.get_variable_values<type::Char>("coor_names");
     promise.wait_for_completion();
 
-    const auto list = promise.get_strings();
+    const auto list = promise.get<0>().get_strings();
 
-    //std::cout << std::string(promise.value()) << "\n";
     for (const auto& s : list) std::cout << s << "\n";
 
     /*
@@ -119,14 +117,15 @@ int pncdf_file()
 }
 
 template<typename... _Types>
-io::request_array<_Types...>
+io::promise<_Types...>
 get_requests()
 {
     std::array<uint32_t, sizeof...(_Types)> counts;
     for (uint32_t i = 0; i < counts.size(); i++)
         counts[i] = 4;
 
-    io::request_array<_Types...> array(counts);
+    io::promise<_Types...> array(0, counts);
+    std::cout << (std::size_t)array.template get<0>().data.get() << "\n";
 
     return array;
 }
@@ -146,14 +145,6 @@ int main(int argc, char** argv)
     MPI_Get_processor_name(processor_name, &name_len);
 
     printf("Hello from processor %s, rank %d out of %d processors.\n", processor_name, world_rank, world_size); 
-
-    //auto array = get_requests<io::Type<NC_CHAR>, io::Type<NC_DOUBLE>>();
-    //std::cout << (std::size_t)array.get<0>().data.get() << "\n";
-
-    auto array = get_requests<io::Type<NC_CHAR>, io::Type<NC_DOUBLE>>();
-    //io::request_array<io::Type<NC_CHAR>, io::Type<NC_DOUBLE>> array({ 2, 4 });
-    std::cout << (std::size_t)array.get<0>().data.get() << "\n";
-    std::cout << (std::size_t)array.get<1>().data.get() << "\n";
 
     //return exodus_file();
     return pncdf_file();

@@ -9,6 +9,14 @@
 #include <any>
 #include <memory>
 
+namespace pio::err
+{
+    enum class code
+    {
+        SUCCESS
+    };
+}
+
 namespace pio::io
 {
     template<nc_type _Type>
@@ -53,10 +61,39 @@ namespace pio::io
         using integral_type = typename _Type::type;
 
         std::shared_ptr<integral_type> data;
+        const uint32_t count;
 
-        request(uint32_t count) :
-            data((integral_type*)std::calloc(count, sizeof(integral_type)))
+        request(uint32_t _count) :
+            data((integral_type*)std::calloc(_count, sizeof(integral_type))),
+            count(_count)
         {   }
+        
+        
+        template<typename = std::enable_if<std::is_same_v<_Type, Type<NC_CHAR>>>>
+        std::vector<std::string>
+        get_strings() const
+        {
+            std::vector<std::string> ret;
+            
+            std::stringstream ss;
+            for (uint32_t i = 0; i < count; i++)
+            {
+                if (value()[i] == '\0') 
+                {
+                    if (ss.str().length())  
+                        ret.push_back(ss.str());
+                    ss.str(std::string(""));
+                    continue;
+                }
+
+                ss << value()[i];
+            }
+
+            return ret;
+        }
+
+        integral_type* value() { return data.get(); }
+        const integral_type* value() const { return data.get(); }
     };
 
     template<typename... _Types>
@@ -65,14 +102,26 @@ namespace pio::io
         int ids[sizeof...(_Types)];
         std::array<std::any, sizeof...(_Types)> requests;
 
+        request_array() = default;
+
         request_array(const std::array<uint32_t, sizeof...(_Types)>& counts)
         {
             emplace<_Types...>(0, counts);
         }
 
+        uint32_t request_count() const { return sizeof...(_Types); }
+
         template<uint32_t index>
         auto&
         get()
+        {
+            using nth_type = std::tuple_element_t<index, std::tuple<_Types...>>;
+            return *std::any_cast<request<nth_type>>(&requests[index]);
+        }
+
+        template<uint32_t index>
+        auto&
+        get() const
         {
             using nth_type = std::tuple_element_t<index, std::tuple<_Types...>>;
             return *std::any_cast<request<nth_type>>(&requests[index]);
@@ -88,6 +137,69 @@ namespace pio::io
         }
     };
 
+    // change int errors to err::code
+    template<typename... _Types>
+    class promise
+    {
+        request_array<_Types...> _requests;
+        std::optional<int> _error;
+        const int _handle;
+
+    public:
+        promise(int error) :
+            _error(error),
+            _handle(0)
+        {   }
+
+        promise(int handle, const std::array<uint32_t, sizeof...(_Types)>& counts) :
+            _requests(counts),
+            _handle(handle)
+        {   }
+
+        template<uint32_t _Index>
+        auto&
+        get() const 
+        {
+            return _requests.template get<_Index>();
+        }
+        
+        template<uint32_t _Index>
+        auto&
+        get() 
+        {
+            return _requests.template get<_Index>();
+        }
+
+        std::vector<std::string> 
+        wait_for_completion() const
+        {
+            const auto req_count = _requests.request_count();
+            std::vector<int> status(req_count); 
+            auto* requests = const_cast<int*>(&_requests.ids[0]);
+
+            const auto error = ncmpi_wait_all(_handle, req_count, requests, status.data());
+            if (error == NC_NOERR)
+            {
+                std::vector<std::string> ret;
+                ret.reserve(req_count);
+                for (const auto& i : status) ret.push_back(std::string(ncmpi_strerror(i)));
+                return ret;
+            }
+            std::cout << "error: " << ncmpi_strerror(error) << "\n";
+            return { };
+        }
+
+        int* requests() { return &_requests.ids[0]; }
+
+        uint32_t request_count() const { return sizeof...(_Types); }
+
+        bool good() const
+        {
+            return (!_error.has_value());
+        }
+    };
+
+    /*
     template<typename T>
     class promise
     {
@@ -197,6 +309,7 @@ namespace pio::io
         value_type* value() { return _value; }
         const_value* value() const { return _value; }
     };
+    */
 
     template<typename T>
     class result
@@ -221,4 +334,11 @@ namespace pio::io
     {
         ro, wo
     };
+}
+
+namespace pio::type
+{
+    using Char = io::Type<NC_CHAR>;
+    using Double = io::Type<NC_DOUBLE>;
+    using Float = io::Type<NC_FLOAT>;
 }

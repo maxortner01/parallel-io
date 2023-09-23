@@ -95,8 +95,8 @@ namespace pio::netcdf
             return { var };
         }
 
-        template<nc_type _Type>
-        const io::promise<typename io::Type<_Type>::type>
+        template<typename _Type>
+        const io::promise<_Type>
         get_variable_values(const std::string& name) const
         {
             const auto info = get_variable_info(name);
@@ -121,23 +121,17 @@ namespace pio::netcdf
                 var_size *= count[j];
             }
 
-            //err = ncmpi_get_vara_double_all(handle, i, start.data(), count.data(), values.data());
-
-            using type_t = io::Type<_Type>;
-            io::promise<typename io::Type<_Type>::type> promise(handle, var_size, 1);
-            const auto err = type_t::func(handle, info.value().index, start.data(), count.data(), promise.value(), promise.requests());
+            io::promise<_Type> promise(handle, { var_size });
+            const auto err = _Type::func(
+                handle, 
+                info.value().index, 
+                start.data(), 
+                count.data(), 
+                promise.template get<0>().value(), 
+                promise.requests()
+            );
 
             return promise;
-
-
-            /*
-            using type_t = Type<_Type>;
-            io::promise<typename Type<_Type>::type> promise(handle, 10, 1);
-
-            std::cout << "writing to location " << (size_t)promise.value() << "\n";
-            const auto err = type_t::func(handle, info.value().index, promise.value(), promise.requests());Z
-            
-            return promise;*/
         }
 
         io::result<std::vector<MPI_Offset>>
