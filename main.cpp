@@ -74,45 +74,24 @@ int pncdf_file()
     }
 
     // Read in the names
-    const auto names = exo.variable_names().value();
+    //const auto names = exo.variable_names().value();
     //for (const auto& name : names)
     //    std::cout << name << "\n";
 
     const auto info = exo.get_variable_info("eb_names");
 
-    const auto promise = exo.get_variable_values<type::Char>("coor_names");
+    std::vector<std::string> var_names = { "connect1", "connect2" };
+    const auto promise = exo.get_variable_values<type::Int>(var_names);
+    std::cout << promise.requests() << "\n";
+    assert(promise.good());
     promise.wait_for_completion();
 
-    const auto list = promise.get<0>().get_strings();
-
-    for (const auto& s : list) std::cout << s << "\n";
-
-    /*
-    // Read in the type
-    const auto info = exo.get_variable_info("vals_elem_var1eb1");
-    std::cout << info.value().type << "\n\n";
-
-    // Create two async reads for variable 1 eb 1 and 2
-    const auto promisea = exo.get_variable_values<NC_DOUBLE>("vals_elem_var1eb1");
-    const auto promiseb = exo.get_variable_values<NC_DOUBLE>("vals_elem_var1eb2");
     
-    // Wait for them to complete
-    const auto status = promisea.wait_for_completion();
-    const auto status2 = promiseb.wait_for_completion();
+    const auto* list = promise.get<0>().data.get();
+    std::cout << "Count: " << promise.get<0>().count << "\n";
+    for (uint32_t i = 0; i < promise.get<0>().count; i++)
+        std::cout << list[i] << "\n";
     
-    // Read out the values
-    for (uint32_t i = 0; i < promisea.count(); i++)
-        std::cout << promisea.value()[i] << "\n";
-    
-    std::cout << "\n";
-
-    for (uint32_t i = 0; i < promiseb.count(); i++)
-        std::cout << promiseb.value()[i] << "\n";
-
-    const auto inq = exo.inquire();
-
-    std::cout << "File info:\nndims: " << inq.value().dimensions << "\nnvars: " << inq.value().variables << "\nngatt: " << inq.value().attributes << "\n";
-    */
     exo.close();
 }
 

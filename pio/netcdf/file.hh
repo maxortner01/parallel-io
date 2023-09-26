@@ -2,12 +2,29 @@
 
 #include "../io.hh"
 
+#include <cassert>
 #include <string>
 #include <functional>
 
 // http://cucis.ece.northwestern.edu/projects/PnetCDF/doc/pnetcdf-c
 namespace pio::netcdf
 {
+    // https://stackoverflow.com/questions/54268425/enumerating-over-a-fold-expression
+    template<std::size_t... inds, class F>
+    constexpr void static_for_impl(std::index_sequence<inds...>, F&& f)
+    {
+        (f(std::integral_constant<std::size_t, inds>{}), ...);
+    }
+
+    template<std::size_t N, class F>
+    constexpr void static_for(F&& f)
+    {
+        static_for_impl(std::make_index_sequence<N>{}, std::forward<F>(f));
+    }
+    
+    template<int N, typename... Ts>
+    using NthType = typename std::tuple_element<N, std::tuple<Ts...>>::type;
+
     struct file
     {
         struct info
@@ -95,41 +112,171 @@ namespace pio::netcdf
             return { var };
         }
 
-        template<typename _Type>
-        const io::promise<_Type>
-        get_variable_values(const std::string& name) const
+        struct value_info
         {
+            uint32_t index, size;
+            int type;
+            std::vector<MPI_Offset> start, count;
+
+            value_info() : index(0), size(0) { }
+        };
+
+        io::result<value_info>
+        get_variable_value_info(const std::string& name)
+        {
+            // Get MPI info
+            const auto [nprocs, rank] = []() -> auto
+            {
+                int nprocs, rank;
+                MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+                MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+                return std::tuple(nprocs, rank);
+            }();
+
             const auto info = get_variable_info(name);
             if (!info.good()) return { info.error() };
-            
-            int nprocs, rank;
-            MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-            MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-            auto start = std::vector<MPI_Offset>(info.value().dimensions);
-            auto count = std::vector<MPI_Offset>(info.value().dimensions);
+            value_info ret;
+            ret.type = info.value().type;
+            ret.index = info.value().index;
+
+            ret.start = std::vector<MPI_Offset>(info.value().dimensions);
+            ret.count = std::vector<MPI_Offset>(info.value().dimensions);
 
             const auto dim_sizes = get_dimension_lengths().value();
-            start[0] = (dim_sizes[info.value().dimension_ids[0]] / nprocs)*rank;
-            count[0] = (dim_sizes[info.value().dimension_ids[0]] / nprocs);
-            auto var_size = count[0];
+            ret.start[0] = (dim_sizes[info.value().dimension_ids[0]] / nprocs)*rank;
+            ret.count[0] = (dim_sizes[info.value().dimension_ids[0]] / nprocs);
+            ret.size = ret.count[0];
 
             for (uint32_t j = 1; j < info.value().dimensions; j++)
             {
-                start[j] = 0;
-                count[j] = dim_sizes[info.value().dimension_ids[j]];
-                var_size *= count[j];
+                ret.start[j] = 0;
+                ret.count[j] = dim_sizes[info.value().dimension_ids[j]];
+                ret.size *= ret.count[j];
             }
 
-            io::promise<_Type> promise(handle, { var_size });
-            const auto err = _Type::func(
-                handle, 
-                info.value().index, 
-                start.data(), 
-                count.data(), 
-                promise.template get<0>().value(), 
-                promise.requests()
-            );
+            return { ret };
+        }
+
+        // Each variable is same type and all share memory region,
+        // but still multiple requests
+        template<typename _Type>
+        const io::promise<_Type>
+        get_variable_values(const std::vector<std::string>& names)
+        {
+            const auto VAR_COUNT = names.size();
+            assert(VAR_COUNT);
+
+            // Get MPI info
+            const auto [nprocs, rank] = []() -> auto
+            {
+                int nprocs, rank;
+                MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+                MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+                return std::tuple(nprocs, rank);
+            }();
+
+            uint32_t var_size = 0;
+            std::vector<uint32_t> sizes;
+
+            std::vector<io::result<value_info>> infos;
+            infos.reserve(VAR_COUNT);
+            sizes.reserve(VAR_COUNT);
+
+            for (uint32_t i = 0; i < VAR_COUNT; i++)
+            {
+                auto info = get_variable_value_info(names[i]);
+                assert(info.good());
+                assert(info.value().type == _Type::nc);
+
+                var_size += info.value().size;
+                sizes.push_back(info.value().size);
+                infos.push_back(info);
+            }
+
+            // Allocate the data to be retreived
+            io::promise<_Type> promise(handle, { var_size }, VAR_COUNT);
+
+            std::size_t offset = 0;
+            for (uint32_t i = 0; i < VAR_COUNT; i++)
+            {
+                std::cout << "_Type::func(\n";
+                std::cout << "  " << handle << ",\n";
+                std::cout << "  " << infos[i].value().index << ",\n";
+                std::cout << "  " << infos[i].value().start.data() << ",\n";
+                std::cout << "  " << infos[i].value().count.data() << ",\n";
+                std::cout << "  " << promise.template get<0>().value() + offset << ",\n";
+                std::cout << "  " << &promise.requests()[i] << "\n)\n";
+
+                const auto err = _Type::func(
+                    handle, 
+                    infos[i].value().index,
+                    infos[i].value().start.data(),
+                    infos[i].value().count.data(),
+                    promise.template get<0>().value() + offset,
+                    &promise.requests()[i]
+                );
+
+                offset += sizes[i];
+            }
+
+            return promise;
+        }
+
+        // Each variable is different type and has unique memory region
+        template<typename... _Types>
+        const io::promise<_Types...>
+        get_variable_values(const std::array<std::string, sizeof...(_Types)>& names)
+        {
+            constexpr auto TYPE_COUNT = sizeof...(_Types);
+            static_assert(TYPE_COUNT);
+
+            // Get MPI info
+            const auto [nprocs, rank] = []() -> auto
+            {
+                int nprocs, rank;
+                MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+                MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+                return std::tuple(nprocs, rank);
+            }();
+
+            // Set up the array of counts
+            std::array<uint32_t, TYPE_COUNT> sizes;
+
+            std::vector<io::result<value_info>> infos;
+            infos.reserve(TYPE_COUNT);
+            for (uint32_t i = 0; i < TYPE_COUNT; i++)
+            {
+                auto info = get_variable_value_info(names[i]);
+                assert(info.good());
+
+                sizes[i] = info.value().size;
+                infos.push_back(info);
+            }
+
+            // Allocate the data to be retreived
+            io::promise<_Types...> promise(handle, sizes);
+
+            // "Iterate" through and make a request for each type supplied
+            static_for<TYPE_COUNT>([&](auto n) {
+                constexpr std::size_t I = n;
+
+                using _Type = NthType<I, _Types...>;
+                assert(infos[I].value().type == _Type::nc);
+
+                // once we fill out start and count this should be it... 
+                // we need to check if .good is true, if it's not 
+                // maybe promise.template get<I>().make_error(info.error()); where make_error is a non-const request method
+
+                const auto err = _Type::func(
+                    handle, 
+                    infos[I].value().index,
+                    infos[I].value().start.data(),
+                    infos[I].value().count.data(),
+                    promise.template get<I>().value(),
+                    &promise.requests()[I]
+                );
+            });
 
             return promise;
         }
@@ -149,6 +296,7 @@ namespace pio::netcdf
             return { dim_sizes };
         }
 
+        /*
         void 
         test() const
         {
@@ -259,15 +407,13 @@ namespace pio::netcdf
                     break;
                 }
                 }
-
-                /*
-                */
                 
                 //ncmpi_get_var_c
                 //ncmpi_inq_att(handle, i, )
 
             }
         }
+        */
 
         io::result<info> 
         inquire() const
