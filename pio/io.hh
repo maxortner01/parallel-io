@@ -8,6 +8,7 @@
 #include <array>
 #include <any>
 #include <memory>
+#include <cassert>
 
 namespace pio::err
 {
@@ -57,6 +58,7 @@ namespace pio::io
         const static func_ptr<type> func;
     };
 
+    // Possibly remove function pointer functionality and replace with ncmpi_iget_vara(....... type.....);
     const func_ptr<Type<NC_DOUBLE>::type> Type<NC_DOUBLE>::func = &ncmpi_iget_vara_double;
     const func_ptr<Type<NC_FLOAT>::type> Type<NC_FLOAT>::func = &ncmpi_iget_vara_float;
     const func_ptr<Type<NC_CHAR>::type> Type<NC_CHAR>::func = &ncmpi_iget_vara_text;
@@ -121,6 +123,7 @@ namespace pio::io
             ),
             ids((int*)std::calloc(_req_count, sizeof(int)))
         {
+            if (req_count.has_value()) assert(req_count.value() >= sizeof...(_Types));
             emplace<_Types...>(0, counts);
         }
 
@@ -155,10 +158,12 @@ namespace pio::io
     };
 
     // change int errors to err::code
+    // we should only allocate data if io is read, so 
+    //   maybe add a new tempalte type that is io::access
     template<typename... _Types>
     class promise
     {
-        request_array<_Types...> _requests;
+        std::optional<request_array<_Types...>> _requests;
         std::optional<int> _error;
         const int _handle;
 
@@ -173,7 +178,7 @@ namespace pio::io
                 const std::array<uint32_t, sizeof...(_Types)>& counts, 
                 std::optional<uint32_t> req_count = std::nullopt
             ) :
-            _requests(counts, req_count),
+            _requests(std::make_optional<request_array<_Types...>>(counts, req_count)),
             _handle(handle)
         {   }
 
@@ -181,22 +186,25 @@ namespace pio::io
         const auto&
         get() const 
         {
-            return _requests.template get<_Index>();
+            assert(_requests.has_value());
+            return _requests.value().template get<_Index>();
         }
         
         template<uint32_t _Index>
         auto&
         get() 
         {
-            return _requests.template get<_Index>();
+            assert(_requests.has_value());
+            return _requests.value().template get<_Index>();
         }
 
         std::vector<std::string> 
         wait_for_completion() const
         {
-            const auto req_count = _requests.request_count();
+            assert(_requests.has_value());
+            const auto req_count = _requests.value().request_count();
             std::vector<int> status(req_count); 
-            auto* requests = const_cast<int*>(_requests.ids.get());
+            auto* requests = const_cast<int*>(_requests.value().ids.get());
 
             const auto error = ncmpi_wait_all(_handle, req_count, requests, status.data());
             if (error == NC_NOERR)
@@ -210,8 +218,8 @@ namespace pio::io
             return { };
         }
 
-        int* requests() { return _requests.ids.get(); }
-        const int* requests() const { return _requests.ids.get(); }
+        int* requests() { return _requests.value().ids.get(); }
+        const int* requests() const { return _requests.value().ids.get(); }
 
         uint32_t request_count() const { return sizeof...(_Types); }
 
@@ -219,6 +227,8 @@ namespace pio::io
         {
             return (!_error.has_value());
         }
+
+        auto error() const { return (good()?0:_error.value()); }
     };
 
     template<typename T>

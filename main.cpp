@@ -1,132 +1,138 @@
 #include <iostream>
+#include <cmath>
+
 #include "./pio/pio.hh"
 
+static int handle_error(int status, int lineno)
+{
+    std::cout << "Error at line " << lineno << ": " << ncmpi_strerror(status) << "\n";
+    MPI_Abort(MPI_COMM_WORLD, 1);
+    return status;
+}
+
 using namespace pio;
+using namespace pio::netcdf;
 
-int exodus_file()
-{
-    exodus::file<float, io::access::ro> file("../box-hex-colors.exo");
-    if (!file)
-    {
-        std::cout << "Error opening file\n";
-        MPI_Abort(MPI_COMM_WORLD, 1);
-        return 2;
-    }
-
-    const auto res = file.get_info();
-    
-    if (res.good())
-    {
-        std::cout << "Title: " << res.value().title << "\n";
-        std::cout << "Dimensions: " << res.value().num_dim << "\n";
-        std::cout << "Nodes: " << res.value().num_nodes << "\n";
-        std::cout << "Num Elems: " << res.value().num_elem << "\n";
-        std::cout << "Num Elem Blk: " << res.value().num_elem_blk << "\n";
-        std::cout << "Num Node Sets: " << res.value().num_node_sets << "\n";
-        std::cout << "Num Side Sets: " << res.value().num_side_sets << "\n";
-    }
-
-    const auto coordinates = file.get_node_coordinates();
-
-    if (coordinates.good())
-    {
-        const auto& val = coordinates.value();
-
-        for (uint32_t i = 0; i < val.x.size(); i++)
-        {
-            std::cout << val.x[i] << " ";
-            if (val.y.size()) std::cout << val.y[i] << " ";
-            if (val.z.size()) std::cout << val.z[i] << " ";
-            std::cout << "\n";
-        }
-    }
-
-    // https://www.osti.gov/servlets/purl/10102115
-    const auto time = file.get_time_values();
-    if (time.good())
-    {
-        std::cout << "Time value count: " << time.value().size() << "\n";
-        for (const auto& val : time.value()) std::cout << val << "\n";
-    }
-
-    const auto variable_names = file.get_variable_names(exodus::scope::element).value();
-    std::cout << variable_names[0] << "\n";
-
-    const auto val = file.get_element_variable_values(1, 1);
-    if (val.good())
-    {
-        for (const auto& v : val.value())
-        {
-            for (const auto& c : v) std::cout << c << " ";
-            std::cout << "\n";
-        }
-    }
-}
-
-int pncdf_file()
-{
-    netcdf::file exo("../box-hex.exo", io::access::ro);
-    if (!exo)
-    {
-        std::cout << "Error opening file: " << exo.error_string() << "\n";
-        MPI_Abort(MPI_COMM_WORLD, 1);
-        return 1;
-    }
-
-    // Read in the names
-    //const auto names = exo.variable_names().value();
-    //for (const auto& name : names)
-    //    std::cout << name << "\n";
-
-    const auto info = exo.get_variable_info("eb_names");
-
-    std::vector<std::string> var_names = { "connect1", "connect2" };
-    const auto promise = exo.get_variable_values<type::Int>(var_names);
-    std::cout << promise.requests() << "\n";
-    assert(promise.good());
-    promise.wait_for_completion();
-
-    
-    const auto* list = promise.get<0>().data.get();
-    std::cout << "Count: " << promise.get<0>().count << "\n";
-    for (uint32_t i = 0; i < promise.get<0>().count; i++)
-        std::cout << list[i] << "\n";
-    
-    exo.close();
-}
-
-template<typename... _Types>
-io::promise<_Types...>
-get_requests()
-{
-    std::array<uint32_t, sizeof...(_Types)> counts;
-    for (uint32_t i = 0; i < counts.size(); i++)
-        counts[i] = 4;
-
-    io::promise<_Types...> array(0, counts);
-    std::cout << (std::size_t)array.template get<0>().data.get() << "\n";
-
-    return array;
-}
+#define mpi_assert(expr) if (!(expr)) { std::cout << "bad at " << __LINE__ << "\n"; MPI_Abort(MPI_COMM_WORLD, 2); return 2; }
 
 int main(int argc, char** argv)
 {
     MPI_Init(&argc, &argv);
 
-    int world_size;
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    std::vector<float> data(10 * 10);
+    uint32_t i = 0;
+    for (auto& v : data) v = i++;
 
-    int world_rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+    const auto [rank, nprocs] = []()
+    {
+        int rank, nprocs;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+        return std::pair(rank, nprocs);
+    }();
 
-    char processor_name[MPI_MAX_PROCESSOR_NAME];
-    int name_len;
-    MPI_Get_processor_name(processor_name, &name_len);
+    {
+        file<io::access::wo> f("../test.cdf");
+        mpi_assert(f.good());
 
-    printf("Hello from processor %s, rank %d out of %d processors.\n", processor_name, world_rank, world_size); 
+        mpi_assert(f.define_dimension("x", 10));
+        mpi_assert(f.define_dimension("y", 10));
 
-    //return exodus_file();
-    return pncdf_file();
+        mpi_assert(f.define_variables<pio::type::Float>("v1", { "x", "y" }));
+        f.end_define();
+
+        const auto adj = (rank == nprocs - 1?0:-1);
+        const auto partition_size = (int)std::round(10U / (double)nprocs) + adj;
+        const auto start = std::min(partition_size * rank, (int)data.size());
+        
+        std::vector<MPI_Offset> offsets(2);
+        std::vector<MPI_Offset> counts(2);
+
+        offsets[1] = 0;
+        offsets[0] = rank * 5;
+        counts[1] = 10;
+        counts[0] = 5;
+
+        const auto promise = f.write_variable<pio::type::Float>(
+            "v1", 
+            (data.data() + rank * (10 * 10 / 2)),
+            10 * 10 / 2,
+            offsets,
+            counts
+        );
+        std::cout << promise.good() << " " << promise.error() << "\n";
+        assert(promise.good());
+        const auto status = promise.wait_for_completion();
+        for (const auto& s : status) std::cout << s << "\n";
+    }
 
     MPI_Finalize();
+
+    return 0;
+}
+
+int main2(int argc, char** argv)
+{
+    MPI_Init(&argc, &argv);
+
+    const auto [rank, nprocs] = []()
+    {
+        int rank, nprocs;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
+        return std::pair(rank, nprocs);
+    }();
+
+    MPI_Info info;
+    MPI_Info_create(&info);
+    MPI_Info_set(info, "nc_var_align_size", "1");
+
+    int ncfile;
+    auto err = ncmpi_create(MPI_COMM_WORLD, "../test.cdf", NC_CLOBBER | NC_64BIT_OFFSET, info, &ncfile);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    MPI_Info_free(&info);
+
+    const auto ndims = 1;
+    int dimid;
+    int var1id, var2id;
+    err = ncmpi_def_dim(ncfile, "d1", nprocs, &dimid);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    err = ncmpi_def_var(ncfile, "v1", NC_INT, ndims, &dimid, &var1id);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    err = ncmpi_def_var(ncfile, "v2", NC_INT, ndims, &dimid, &var1id);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    char buf[13] = "Hello World\n";
+    err = ncmpi_put_att_text(ncfile, NC_GLOBAL, "string", 13, buf);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    err = ncmpi_enddef(ncfile);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    int requests[2];
+    MPI_Offset start = rank;
+    MPI_Offset count = 1;
+    auto data1 = rank, data2 = rank;
+
+    err = ncmpi_iput_vara(ncfile, var1id, &start, &count, &data1, count, MPI_INT, &requests[0]);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    err = ncmpi_iput_vara(ncfile, var2id, &start, &count, &data2, count, MPI_INT, &requests[1]);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    int statuses[2];
+    err = ncmpi_wait_all(ncfile, 2, requests, statuses);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    for (uint32_t i = 0; i < 2; i++)
+        std::cout << ncmpi_strerror(statuses[i]) << "\n";
+    
+    err = ncmpi_close(ncfile);
+    if (err != NC_NOERR) return handle_error(err, __LINE__);
+
+    MPI_Finalize();
+    return 0;
 }

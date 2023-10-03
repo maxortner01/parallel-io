@@ -2,6 +2,7 @@
 
 #include "../io.hh"
 
+#include <numeric>
 #include <cassert>
 #include <string>
 #include <functional>
@@ -9,6 +10,21 @@
 // http://cucis.ece.northwestern.edu/projects/PnetCDF/doc/pnetcdf-c
 namespace pio::netcdf
 {
+    template<typename T, uint32_t _Dimension>
+    struct Point
+    {
+        T data[_Dimension];
+
+        T& operator[](uint32_t index) 
+        {
+            assert(index < _Dimension);
+            return data[index];
+        }
+    };
+
+    namespace impl 
+    {
+
     // https://stackoverflow.com/questions/54268425/enumerating-over-a-fold-expression
     template<std::size_t... inds, class F>
     constexpr void static_for_impl(std::index_sequence<inds...>, F&& f)
@@ -24,8 +40,67 @@ namespace pio::netcdf
     
     template<int N, typename... Ts>
     using NthType = typename std::tuple_element<N, std::tuple<Ts...>>::type;
+    
+    template<io::access _Access>
+    struct file_base
+    {
+        file_base(const std::string& filename)
+        {
+            if constexpr (_Access == io::access::ro)
+            {
+                err = ncmpi_open(
+                    MPI_COMM_WORLD, 
+                    filename.c_str(),
+                    (_Access == io::access::ro?NC_NOWRITE:NC_EWRITE),
+                    MPI_INFO_NULL,
+                    &handle
+                );
+            }
 
-    struct file
+            if constexpr (_Access == io::access::wo)
+            {
+                MPI_Info info;
+                MPI_Info_create(&info);
+
+                err = ncmpi_create(
+                    MPI_COMM_WORLD, 
+                    filename.c_str(),
+                    NC_NOCLOBBER | NC_64BIT_OFFSET,
+                    info,
+                    &handle
+                );
+
+                MPI_Info_free(&info);
+            }
+
+            if (err != NC_NOERR) _good = false;
+            else _good = true;
+        }
+
+        file_base(const file_base&) = delete;
+
+        ~file_base()
+        { close(); }
+
+        void close()
+        {
+            if (_good) err = ncmpi_close(handle);
+        }
+
+        auto good() const { return _good; }
+        operator bool() const { return good(); }
+
+    protected:
+        int handle, err;
+        bool _good;
+    };
+
+    template<io::access _Access>
+    struct file_access
+    {   };
+
+    template<>
+    struct file_access<io::access::ro> : file_base<io::access::ro>
     {
         struct info
         {
@@ -38,30 +113,8 @@ namespace pio::netcdf
             std::vector<int> dimension_ids;
         };
 
-        file(const std::string& file_location, io::access io)
-        {
-            err = ncmpi_open(
-                MPI_COMM_WORLD, 
-                file_location.c_str(),
-                (io == io::access::ro?NC_NOWRITE:NC_EWRITE),
-                MPI_INFO_NULL,
-                &handle
-            );
-
-            if (err != NC_NOERR) _good = false;
-            else _good = true;
-        }
-
-        file(const file&) = delete;
-
-        ~file()
-        { close(); }
-
-        void close()
-        {
-            if (good())
-                err = ncmpi_close(handle);
-        }
+        using base = file_base<io::access::ro>;
+        using base::file_base;
 
         io::result<std::vector<std::string>>
         variable_names() const
@@ -167,15 +220,6 @@ namespace pio::netcdf
             const auto VAR_COUNT = names.size();
             assert(VAR_COUNT);
 
-            // Get MPI info
-            const auto [nprocs, rank] = []() -> auto
-            {
-                int nprocs, rank;
-                MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-                MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-                return std::tuple(nprocs, rank);
-            }();
-
             uint32_t var_size = 0;
             std::vector<uint32_t> sizes;
 
@@ -200,14 +244,6 @@ namespace pio::netcdf
             std::size_t offset = 0;
             for (uint32_t i = 0; i < VAR_COUNT; i++)
             {
-                std::cout << "_Type::func(\n";
-                std::cout << "  " << handle << ",\n";
-                std::cout << "  " << infos[i].value().index << ",\n";
-                std::cout << "  " << infos[i].value().start.data() << ",\n";
-                std::cout << "  " << infos[i].value().count.data() << ",\n";
-                std::cout << "  " << promise.template get<0>().value() + offset << ",\n";
-                std::cout << "  " << &promise.requests()[i] << "\n)\n";
-
                 const auto err = _Type::func(
                     handle, 
                     infos[i].value().index,
@@ -230,15 +266,6 @@ namespace pio::netcdf
         {
             constexpr auto TYPE_COUNT = sizeof...(_Types);
             static_assert(TYPE_COUNT);
-
-            // Get MPI info
-            const auto [nprocs, rank] = []() -> auto
-            {
-                int nprocs, rank;
-                MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-                MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-                return std::tuple(nprocs, rank);
-            }();
 
             // Set up the array of counts
             std::array<uint32_t, TYPE_COUNT> sizes;
@@ -296,125 +323,6 @@ namespace pio::netcdf
             return { dim_sizes };
         }
 
-        /*
-        void 
-        test() const
-        {
-            const auto inq = inquire().value();
-
-            int nprocs, rank;
-            MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-            MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-
-            auto dim_sizes = std::vector<MPI_Offset>(inq.dimensions);
-            for (uint32_t i = 0; i < inq.dimensions; i++)
-            {
-                auto err = ncmpi_inq_dimlen(handle, i, &dim_sizes[i]);
-                if (err != NC_NOERR) { return; }
-            }
-
-            for (uint32_t i = 0; i < inq.variables; i++)
-            {
-                int vdims, vatts;
-                auto err = ncmpi_inq_varndims(handle, i, &vdims);
-                if (err < 0) return;
-
-                std::vector<int> dimids(vdims);
-
-                nc_type type;
-                char var_name[MAX_STR_LENGTH];
-                err = ncmpi_inq_var(handle, i, var_name, &type, &vdims, dimids.data(), &vatts);
-                if (err < 0) return;
-
-                std::cout << "Name: " << var_name << ", dimensions: " << vdims << ", type: " << type << "\n";
-
-                auto start = std::vector<MPI_Offset>(vdims);
-                auto count = std::vector<MPI_Offset>(vdims);
-
-                start[0] = (dim_sizes[dimids[0]] / nprocs)*rank;
-                count[0] = (dim_sizes[dimids[0]] / nprocs);
-                auto var_size = count[0];
-
-                for (uint32_t j = 1; j < vdims; j++)
-                {
-                    start[j] = 0;
-                    count[j] = dim_sizes[dimids[j]];
-                    var_size *= count[j];
-                }
-
-                for (uint32_t j = 0; j < vatts; j++)
-                {
-                    char att_name[MAX_STR_LENGTH];
-                    err = ncmpi_inq_attname(handle, i, j, att_name);
-                    if (err < 0) return;
-
-                    MPI_Offset lenp;
-                    nc_type att_type;
-                    err = ncmpi_inq_att(handle, i, att_name, &att_type, &lenp);
-                    if (err < 0) return;
-
-                    std::cout << "  " << att_name << ", len: " << lenp << ", type: " << att_type << "\n";
-                    
-                    if (lenp > 0)
-                    {
-
-                    switch (att_type)
-                    {
-                    case NC_CHAR:
-                    {
-                        std::string values;
-                        values.resize(lenp);
-                        err = ncmpi_get_att(handle, i, att_name, &values[0]); 
-                        std::cout << "    attribute value: " << values << "\n";
-                        break;
-                    }
-                    
-                    default:
-                        break;
-                    }
-
-                    }
-
-                }
-
-                switch (type)
-                {
-                case NC_DOUBLE:
-                {
-                    std::vector<double> values(var_size);
-                    err = ncmpi_get_vara_double_all(handle, i, start.data(), count.data(), values.data());
-                    if (err < 0) return;
-                    for (const auto& d : values)
-                        std::cout << "  " << d << "\n";
-                    break;
-                }
-                case NC_INT:
-                {
-                    std::vector<int> values(var_size);
-                    err = ncmpi_get_vara_int_all(handle, i, start.data(), count.data(), values.data());
-                    if (err < 0) return;
-                    for (const auto& d : values)
-                        std::cout << "  " << d << "\n";
-                    break;
-                }
-                case NC_CHAR:
-                {
-                    std::string values;
-                    values.resize(var_size);
-                    err = ncmpi_get_vara_text_all(handle, i, start.data(), count.data(), &values[0]);
-                    if (err < 0) return;
-                    std::cout << values << "\n";
-                    break;
-                }
-                }
-                
-                //ncmpi_get_var_c
-                //ncmpi_inq_att(handle, i, )
-
-            }
-        }
-        */
-
         io::result<info> 
         inquire() const
         {
@@ -428,16 +336,126 @@ namespace pio::netcdf
         }
 
         auto error_string() const { return std::string(ncmpi_strerror(err)); }
-        auto error() const { return err; }
-        bool good()  const { return _good; }
+    };
 
-        operator bool() const
+    template<>
+    struct file_access<io::access::wo> : file_base<io::access::wo>
+    {
+    private:
+        struct var
         {
-            return good();
+            int id;
+            nc_type type;
+            std::vector<int> dim_ids;
+        };
+
+    public:
+        using file_base<io::access::wo>::file_base;
+
+        bool define_dimension(const std::string& name, const uint32_t& length)
+        {
+            int id;
+            const auto err = ncmpi_def_dim(handle, name.c_str(), length, &id);
+            if (err != NC_NOERR) return false;
+
+            _dimensions.insert(std::pair(name, id));
+            return true;
+        }
+
+        template<typename _Type>
+        bool define_variables(
+            const std::string& name, 
+            const std::vector<std::string>& dimensions)
+        {
+            std::vector<int> dimids;
+            dimids.reserve(dimensions.size());
+
+            for (const auto& s : dimensions)
+            {
+                if (!_dimensions.count(s)) return false;
+                dimids.push_back(_dimensions.at(s));
+            }
+
+            int id;
+            const auto err = ncmpi_def_var(
+                handle, 
+                name.c_str(), 
+                _Type::nc, 
+                dimids.size(), 
+                dimids.data(), 
+                &id
+            );
+
+            if (err != NC_NOERR) return false;
+
+            var v;
+            v.id = id;
+            v.type = _Type::nc;
+            v.dim_ids = dimids;
+
+            _variables.insert(std::pair(name, v));
+            return true;
+        }
+
+        void end_define() 
+        {
+            const auto err = ncmpi_enddef(handle);
+            if (err != NC_NOERR) _good = false;
+        }
+        
+        template<typename _Type>
+        io::promise<_Type>
+        write_variable(
+            const std::string& name,
+            const typename _Type::type* data,
+            const std::size_t& size,
+            const std::vector<MPI_Offset>& offset,
+            const std::vector<MPI_Offset>& count)
+        {
+            if (!data) return { 0 };
+
+
+            if (offset.size() != count.size()) return { 1 };
+
+            // data size needs to be product of counts
+            auto product = std::accumulate(count.begin(), count.end(), 1, std::multiplies<size_t>());
+            if (product != size) return { 2 };
+
+            if (!_variables.count(name)) return { 3 };
+
+            const auto& var = _variables.at(name);
+            if (var.dim_ids.size() != offset.size()) return { 4 };
+
+            if (_Type::nc != var.type) return { 5 };
+            //err = ncmpi_iput_vara(ncfile, var1id, &start, &count, &data1, count, MPI_INT, &requests[0]);
+
+            // Allocate the data to be retreived
+            io::promise<_Type> promise(handle, { 1 }, 1);
+            auto err = ncmpi_iput_vara(
+                handle,
+                var.id,
+                offset.data(),
+                count.data(),
+                data,
+                size,
+                MPI_DATATYPE_NULL,
+                promise.requests()
+            );
+
+            if (err != NC_NOERR) return { err };
+
+            return promise;
         }
 
     private:
-        int handle, err;
-        bool _good;
+        std::unordered_map<std::string, int> _dimensions;
+        std::unordered_map<std::string, var> _variables;
     };
+
+    
+    } // namespace impl
+
+    template<io::access _Access>
+    struct file : impl::file_access<_Access>
+    { using impl::file_access<_Access>::file_access; };
 }
