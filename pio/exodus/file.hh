@@ -12,29 +12,39 @@ namespace pio::exodus
         global, node, element
     };
 
+    template<typename _Word>
+    struct coordinates
+    {
+        std::vector<_Word> x, y, z;
+    };
+
+    struct info
+    {
+        std::string title;
+        std::size_t num_dim = 0, num_nodes = 0, num_elem = 0, num_elem_blk = 0, num_node_sets = 0, num_side_sets = 0;
+    };
+    
+    struct Block
+    {
+        std::string type;
+        int elements, nodes_per_elem, attributes;
+    };
+    
     namespace impl
     {
         
     template<typename _Word, io::access _Access>
     struct file_base
     {   
-        struct coordinates
-        {
-            std::vector<_Word> x, y, z;
-        };
-
-        struct info
-        {
-            std::string title;
-            int num_dim, num_nodes, num_elem, num_elem_blk, num_node_sets, num_side_sets;
-        };
-
         file_base(const std::string& filename)
         {
             int comp_ws = sizeof(_Word);
             int io_ws = 0;
             float version;
             handle = ex_open(filename.c_str(), (_Access == io::access::ro?EX_READ:EX_WRITE), &comp_ws, &io_ws, &version); 
+
+            if constexpr (_Access == io::access::wo)
+                if (handle < 0) handle = ex_create(filename.c_str(), EX_WRITE, &comp_ws, &io_ws);
 
             _good = (handle < 0?false:true);
         }
@@ -62,20 +72,65 @@ namespace pio::exodus
     { };
 
     template<typename _Word>
+    struct file_access<_Word, io::access::wo> : file_base<_Word, io::access::wo>
+    {
+        using base = file_base<_Word, io::access::wo>;
+        using base::file_base;
+
+        bool
+        set_init_params(const info& info)
+        {
+            auto err = ex_put_init(this->handle, info.title.c_str(), info.num_dim, info.num_nodes, info.num_elem, info.num_elem_blk, info.num_node_sets, info.num_side_sets);
+            if (err < 0) { std::cout << err << " " << ex_strerror(err) << "\n"; return false; }
+
+            return true;
+        }
+
+        bool 
+        write_time_step(_Word value)
+        {
+            auto err = ex_put_time(this->handle, time_steps++, &value);
+            if (err < 0) { std::cout << err << " " << ex_strerror(err) << "\n"; return false; }
+            return true;
+        }
+
+        bool
+        create_block(const Block& block)
+        {
+            auto err = ex_put_block(
+                this->handle, 
+                EX_ELEM_BLOCK, 
+                block_counter++, 
+                block.type.c_str(),
+                block.elements,
+                block.nodes_per_elem,
+                0,
+                0,
+                block.attributes
+            );
+            if (err < 0) return false;
+            return true;
+        }
+
+    private:
+        int time_steps = 1;
+        int block_counter = 1;
+    };
+
+    template<typename _Word>
     struct file_access<_Word, io::access::ro> : file_base<_Word, io::access::ro>
     {
         using base = file_base<_Word, io::access::ro>;
-
         using base::file_base;
 
-        io::result<typename base::coordinates>
+        io::result<coordinates<_Word>>
         get_node_coordinates() const
         {
             const auto info = get_info();
             
             if (!info.good()) return { info.error() };
 
-            typename base::coordinates c;
+            coordinates<_Word> c;
             
             if (info.value().num_dim >= 1) c.x.resize(info.value().num_nodes);
             if (info.value().num_dim >= 2) c.y.resize(info.value().num_nodes);
@@ -87,10 +142,10 @@ namespace pio::exodus
             return { c };
         }
 
-        io::result<typename base::info> 
+        io::result<info> 
         get_info() const
         {
-            typename base::info i;
+            info i;
             char title[MAX_LINE_LENGTH];
             const auto ret = ex_get_init(
                 this->handle, 
@@ -154,6 +209,38 @@ namespace pio::exodus
 
             return { variable_names };
         }
+
+        io::result<std::vector<Block>>
+        get_blocks()
+        {
+            const auto res = get_info();
+            if (!res.good()) return { res.error() };
+
+            std::vector<int> ids(res.value().num_elem_blk);
+            auto err = ex_get_ids(this->handle, EX_ELEM_BLOCK, ids.data());
+
+            std::vector<Block> blocks(ids.size());
+            for (uint32_t i = 0; i < ids.size(); i++)
+            {
+                ex_block block{0};
+                char type[MAX_STR_LENGTH];
+                err = ex_get_block(
+                    this->handle, 
+                    EX_ELEM_BLOCK, 
+                    ids[i],
+                    type,
+                    &blocks[i].elements,
+                    &blocks[i].nodes_per_elem,
+                    &block.num_edges_per_entry,
+                    &block.num_faces_per_entry,
+                    &blocks[i].attributes
+                );
+                if (err < 0) return { err };
+
+                blocks[i].type = std::string(type);
+            }
+            return { blocks };
+        };
 
         // Make block struct that contains elem block parameters meta-data
         // as well as a vector of _Word's that is the data, then the return type

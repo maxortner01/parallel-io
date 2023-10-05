@@ -1,21 +1,14 @@
 #include <iostream>
 #include <cmath>
-
+#include <cassert>
 #include "./pio/pio.hh"
 
-static int handle_error(int status, int lineno)
-{
-    std::cout << "Error at line " << lineno << ": " << ncmpi_strerror(status) << "\n";
-    MPI_Abort(MPI_COMM_WORLD, 1);
-    return status;
-}
-
 using namespace pio;
-using namespace pio::netcdf;
 
 #define mpi_assert(expr) if (!(expr)) { std::cout << "bad at " << __LINE__ << "\n"; MPI_Abort(MPI_COMM_WORLD, 2); return 2; }
 
-int main(int argc, char** argv)
+/*
+int main2(int argc, char** argv)
 {
     MPI_Init(&argc, &argv);
 
@@ -32,7 +25,7 @@ int main(int argc, char** argv)
     }();
 
     {
-        file<io::access::wo> f("../test.cdf");
+        netcdf::file<io::access::wo> f("../test.cdf");
         mpi_assert(f.good());
 
         mpi_assert(f.define_dimension("x", 10));
@@ -41,9 +34,9 @@ int main(int argc, char** argv)
         mpi_assert(f.define_variables<pio::type::Float>("v1", { "x", "y" }));
         f.end_define();
 
-        const auto adj = (rank == nprocs - 1?0:-1);
-        const auto partition_size = (int)std::round(10U / (double)nprocs) + adj;
-        const auto start = std::min(partition_size * rank, (int)data.size());
+        //const auto adj = (rank == nprocs - 1?0:-1);
+        //const auto partition_size = (int)std::round(10U / (double)nprocs) + adj;
+        //const auto start = std::min(partition_size * rank, (int)data.size());
         
         std::vector<MPI_Offset> offsets(2);
         std::vector<MPI_Offset> counts(2);
@@ -69,70 +62,89 @@ int main(int argc, char** argv)
     MPI_Finalize();
 
     return 0;
-}
+}*/
 
-int main2(int argc, char** argv)
+int main(int argc, char** argv)
 {
     MPI_Init(&argc, &argv);
 
-    const auto [rank, nprocs] = []()
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    /*
     {
-        int rank, nprocs;
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-        MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-        return std::pair(rank, nprocs);
-    }();
+        std::unordered_map<std::string, std::size_t> dimensions;
+        dimensions.insert(std::pair("len_string", 256));
+        dimensions.insert(std::pair("time_step", NC_UNLIMITED));
+        dimensions.insert(std::pair("num_dim", 3));
 
-    MPI_Info info;
-    MPI_Info_create(&info);
-    MPI_Info_set(info, "nc_var_align_size", "1");
+        netcdf::file<io::access::wo> out("../test.exo");
+        for (const auto& p : dimensions)
+            mpi_assert(out.define_dimension(p.first, p.second));
+    }
+    */
 
-    int ncfile;
-    auto err = ncmpi_create(MPI_COMM_WORLD, "../test.cdf", NC_CLOBBER | NC_64BIT_OFFSET, info, &ncfile);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+    // Read in the base exodus file
+    exodus::file<std::size_t, io::access::ro> in("../box-hex.exo");
+    assert(in);
 
-    MPI_Info_free(&info);
+    if (rank == 0)
+    {
+        // Create the output exodus file and write over the init info 
+        // from the input file
+        exodus::file<std::size_t, io::access::wo> out("../test.exo");
+        
+        if (out.good())
+        {
+            const auto info = in.get_info();
+            assert(info.good());
 
-    const auto ndims = 1;
-    int dimid;
-    int var1id, var2id;
-    err = ncmpi_def_dim(ncfile, "d1", nprocs, &dimid);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+            // Copy over paramters
+            mpi_assert(out.set_init_params(info.value()));
 
-    err = ncmpi_def_var(ncfile, "v1", NC_INT, ndims, &dimid, &var1id);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+            // Write a time step
+            mpi_assert(out.write_time_step(0));
 
-    err = ncmpi_def_var(ncfile, "v2", NC_INT, ndims, &dimid, &var1id);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+            // Get the element blocks and copy them over
+            const auto blocks = in.get_blocks();
+            assert(blocks.good());
 
-    char buf[13] = "Hello World\n";
-    err = ncmpi_put_att_text(ncfile, NC_GLOBAL, "string", 13, buf);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+            for (const auto& block : blocks.value())
+                assert(out.create_block(block));
+        }
+    }
 
-    err = ncmpi_enddef(ncfile);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+    MPI_Barrier(MPI_COMM_WORLD);
 
-    int requests[2];
-    MPI_Offset start = rank;
-    MPI_Offset count = 1;
-    auto data1 = rank, data2 = rank;
+    {
+        std::vector<std::string> var_names;
+        {
+            netcdf::file<io::access::ro> f("../test.exo");
 
-    err = ncmpi_iput_vara(ncfile, var1id, &start, &count, &data1, count, MPI_INT, &requests[0]);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+            auto vars = f.variable_names();
+            assert(vars.good());
+            var_names = std::move(vars.value());
+        }
 
-    err = ncmpi_iput_vara(ncfile, var2id, &start, &count, &data2, count, MPI_INT, &requests[1]);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+        netcdf::file<io::access::rw> f("../test.exo");
+        assert(f.good());
 
-    int statuses[2];
-    err = ncmpi_wait_all(ncfile, 2, requests, statuses);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+        /*
+        for (uint32_t i = 1; i <= var_names.size(); i++)
+        {
+            auto ret = in.get_element_variable_values(1, i);
+            std::cout << ret.error() << " " << ex_strerror(ret.error()) <<"\n";
+            assert(ret.good()); 
 
-    for (uint32_t i = 0; i < 2; i++)
-        std::cout << ncmpi_strerror(statuses[i]) << "\n";
-    
-    err = ncmpi_close(ncfile);
-    if (err != NC_NOERR) return handle_error(err, __LINE__);
+            const auto& vals = ret.value();
+            for (const auto& v : vals) 
+            {
+                for (const auto& w : v)
+                    std::cout << w << " ";
+                std::cout << "\n";
+            }
+        }*/
+    }
 
     MPI_Finalize();
-    return 0;
 }
