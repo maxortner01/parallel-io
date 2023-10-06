@@ -45,6 +45,9 @@ namespace pio::io
     template<nc_type T>
     struct Type
     {   };
+    
+    template<typename T>
+    using func_ptr = int(*)(int, int, const MPI_Offset*, const MPI_Offset*, T*, int*);
 
     /** @copydoc Type */
     template<>
@@ -52,6 +55,7 @@ namespace pio::io
     { 
         const static nc_type nc = NC_DOUBLE;
         using type = double; 
+        const static func_ptr<type> func;
     };
 
     /** @copydoc Type */
@@ -60,6 +64,7 @@ namespace pio::io
     { 
         const static nc_type nc = NC_CHAR;
         using type = char; 
+        const static func_ptr<type> func;
     };
     
     /** @copydoc Type */
@@ -68,6 +73,7 @@ namespace pio::io
     { 
         const static nc_type nc = NC_FLOAT;
         using type = float; 
+        const static func_ptr<type> func;
     };
     
     /** @copydoc Type */
@@ -76,6 +82,7 @@ namespace pio::io
     { 
         const static nc_type nc = NC_INT;
         using type = int; 
+        const static func_ptr<type> func;
     };
 
     template<typename T>
@@ -279,6 +286,15 @@ namespace pio::io
 
         auto error() const { return (good()?0:_error.value()); }
     };
+}
+
+
+namespace pio::type
+{
+    using Double = io::Type<NC_DOUBLE>;
+    using Float = io::Type<NC_FLOAT>;
+    using Char = io::Type<NC_CHAR>;
+    using Int = io::Type<NC_INT>;
 }
 
 // Implementation

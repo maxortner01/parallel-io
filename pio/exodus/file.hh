@@ -21,13 +21,13 @@ namespace pio::exodus
     struct info
     {
         std::string title;
-        std::size_t num_dim = 0, num_nodes = 0, num_elem = 0, num_elem_blk = 0, num_node_sets = 0, num_side_sets = 0;
+        std::uint64_t num_dim = 0, num_nodes = 0, num_elem = 0, num_elem_blk = 0, num_node_sets = 0, num_side_sets = 0;
     };
     
     struct Block
     {
         std::string type;
-        int elements, nodes_per_elem, attributes;
+        int id, elements, nodes_per_elem, attributes;
     };
     
     namespace impl
@@ -39,9 +39,9 @@ namespace pio::exodus
         file_base(const std::string& filename)
         {
             int comp_ws = sizeof(_Word);
-            int io_ws = 0;
+            int io_ws = sizeof(_Word);
             float version;
-            handle = ex_open(filename.c_str(), (_Access == io::access::ro?EX_READ:EX_WRITE), &comp_ws, &io_ws, &version); 
+            handle = ex_open(filename.c_str(), (_Access == io::access::ro?EX_READ:EX_WRITE) | EX_LARGE_MODEL, &comp_ws, &io_ws, &version); 
 
             if constexpr (_Access == io::access::wo)
                 if (handle < 0) handle = ex_create(filename.c_str(), EX_WRITE, &comp_ws, &io_ws);
@@ -237,10 +237,29 @@ namespace pio::exodus
                 );
                 if (err < 0) return { err };
 
+                blocks[i].id = ids[i];
                 blocks[i].type = std::string(type);
             }
             return { blocks };
         };
+
+        io::result<std::vector<_Word>>
+        get_block_data(const std::string& name, uint32_t time, const Block& block)
+        {
+            const auto var_names = get_variable_names(scope::element);
+            if (!var_names.good()) return { var_names.error() };
+
+            const auto it = std::find(var_names.value().begin(), var_names.value().end(), name);
+            if (it == var_names.value().end()) return { -1 };
+
+            std::vector<_Word> res(block.elements);
+
+            const auto index = std::distance(var_names.value().begin(), it);
+            const auto err = ex_get_var(this->handle, time, EX_ELEM_BLOCK, index, block.id, block.elements, res.data());
+            if (err < 0) return { err };
+
+            return { res };
+        }
 
         // Make block struct that contains elem block parameters meta-data
         // as well as a vector of _Word's that is the data, then the return type

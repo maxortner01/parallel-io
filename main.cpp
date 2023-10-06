@@ -1,68 +1,33 @@
 #include <iostream>
 #include <cmath>
 #include <cassert>
+#include <numeric>
+
 #include "./pio/pio.hh"
 
 using namespace pio;
 
 #define mpi_assert(expr) if (!(expr)) { std::cout << "bad at " << __LINE__ << "\n"; MPI_Abort(MPI_COMM_WORLD, 2); return 2; }
 
-/*
-int main2(int argc, char** argv)
+template<typename T>
+static void copy(
+    const std::string& name,
+    const std::vector<MPI_Offset>& start,
+    const std::vector<MPI_Offset>& counts,
+    const netcdf::file<io::access::ro>& in,
+    netcdf::file<io::access::rw>& out)
 {
-    MPI_Init(&argc, &argv);
+    const auto promise = in.get_variable_values<T>(name, start, counts);
+    assert(promise.good());
+    promise.wait_for_completion();
+    const auto count = promise.template get<0>().count;
+    const auto* data = promise.template get<0>().value();
+    const auto write_promise = out.write_variable<T>(name, data, count, start, counts);
+    
+    if (!write_promise.good()) { std::cout << name << " failed\n"; return;}
 
-    std::vector<float> data(10 * 10);
-    uint32_t i = 0;
-    for (auto& v : data) v = i++;
-
-    const auto [rank, nprocs] = []()
-    {
-        int rank, nprocs;
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-        MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-        return std::pair(rank, nprocs);
-    }();
-
-    {
-        netcdf::file<io::access::wo> f("../test.cdf");
-        mpi_assert(f.good());
-
-        mpi_assert(f.define_dimension("x", 10));
-        mpi_assert(f.define_dimension("y", 10));
-
-        mpi_assert(f.define_variables<pio::type::Float>("v1", { "x", "y" }));
-        f.end_define();
-
-        //const auto adj = (rank == nprocs - 1?0:-1);
-        //const auto partition_size = (int)std::round(10U / (double)nprocs) + adj;
-        //const auto start = std::min(partition_size * rank, (int)data.size());
-        
-        std::vector<MPI_Offset> offsets(2);
-        std::vector<MPI_Offset> counts(2);
-
-        offsets[1] = 0;
-        offsets[0] = rank * 5;
-        counts[1] = 10;
-        counts[0] = 5;
-
-        const auto promise = f.write_variable<pio::type::Float>(
-            "v1", 
-            (data.data() + rank * (10 * 10 / 2)),
-            10 * 10 / 2,
-            offsets,
-            counts
-        );
-        std::cout << promise.good() << " " << promise.error() << "\n";
-        assert(promise.good());
-        const auto status = promise.wait_for_completion();
-        for (const auto& s : status) std::cout << s << "\n";
-    }
-
-    MPI_Finalize();
-
-    return 0;
-}*/
+    write_promise.wait_for_completion();
+}
 
 int main(int argc, char** argv)
 {
@@ -71,25 +36,12 @@ int main(int argc, char** argv)
     int rank;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    /*
-    {
-        std::unordered_map<std::string, std::size_t> dimensions;
-        dimensions.insert(std::pair("len_string", 256));
-        dimensions.insert(std::pair("time_step", NC_UNLIMITED));
-        dimensions.insert(std::pair("num_dim", 3));
-
-        netcdf::file<io::access::wo> out("../test.exo");
-        for (const auto& p : dimensions)
-            mpi_assert(out.define_dimension(p.first, p.second));
-    }
-    */
-
-    // Read in the base exodus file
-    exodus::file<std::size_t, io::access::ro> in("../box-hex.exo");
-    assert(in);
-
     if (rank == 0)
     {
+        // Read in the base exodus file
+        exodus::file<std::size_t, io::access::ro> in("../box-hex.exo");
+        assert(in);
+
         // Create the output exodus file and write over the init info 
         // from the input file
         exodus::file<std::size_t, io::access::wo> out("../test.exo");
@@ -114,36 +66,52 @@ int main(int argc, char** argv)
         }
     }
 
+    // Halt all processes to ensure file creation is done
     MPI_Barrier(MPI_COMM_WORLD);
 
-    {
-        std::vector<std::string> var_names;
-        {
-            netcdf::file<io::access::ro> f("../test.exo");
+    {    
+        // Read in the base exodus file
+        netcdf::file<io::access::ro> in("../box-hex.exo");
+        assert(in);
 
-            auto vars = f.variable_names();
-            assert(vars.good());
-            var_names = std::move(vars.value());
-        }
-
+        // Create the output file
         netcdf::file<io::access::rw> f("../test.exo");
         assert(f.good());
 
-        /*
-        for (uint32_t i = 1; i <= var_names.size(); i++)
-        {
-            auto ret = in.get_element_variable_values(1, i);
-            std::cout << ret.error() << " " << ex_strerror(ret.error()) <<"\n";
-            assert(ret.good()); 
+        //const auto vars = in.variable_names();
+        //assert(vars.good());
+        //const auto var_names = vars.value();
 
-            const auto& vals = ret.value();
-            for (const auto& v : vals) 
+        // Set a constant list of variables for the demonstration
+        // run with mpirun -n 3 ./pio which will give each mpi process
+        // its own variable
+        std::vector<std::string> var_names = {"connect1", "connect2", "coor_names"};
+
+        {
+            // go through and copy
+            const auto& name = var_names[rank];
+            std::cout << name << "\n";
+            const auto var_info = in.get_variable_info(name);
+            assert(var_info.good());
+
+            const auto dim_count = var_info.value().dimensions.size();
+            
+            std::vector<MPI_Offset> start(dim_count, 0);
+            std::vector<MPI_Offset> counts(dim_count);
+            for (uint32_t i = 0; i < dim_count; i++)
+                counts[i] = var_info.value().dimensions[i].length;
+            
+            if (std::accumulate(counts.begin(), counts.end(), 0))
             {
-                for (const auto& w : v)
-                    std::cout << w << " ";
-                std::cout << "\n";
+                switch (var_info.value().type)
+                {
+                case type::Int::nc:    copy<type::Int>(name, start, counts, in, f);    break;
+                case type::Float::nc:  copy<type::Float>(name, start, counts, in, f);  break;
+                case type::Double::nc: copy<type::Double>(name, start, counts, in, f); break;
+                case type::Char::nc:   copy<type::Char>(name, start, counts, in, f);   break;
+                }
             }
-        }*/
+        }
     }
 
     MPI_Finalize();

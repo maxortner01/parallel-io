@@ -23,7 +23,9 @@
 
 #define READ_TEMP typename = std::enable_if<_Access == io::access::ro || _Access == io::access::rw, bool>
 #define READ template<READ_TEMP>
-//#define WRITE typename = std::enable_if<_Access == io::access::wo || _Access == io::access::rw>
+
+#define WRITE_TEMP typename = std::enable_if<_Access == io::access::wo || _Access == io::access::rw, bool>
+#define WRITE template<WRITE_TEMP>
 
 namespace pio::netcdf
 {
@@ -53,10 +55,17 @@ namespace pio::netcdf
         int dimensions, variables, attributes;
     };
 
+    struct dimension
+    {
+        int id;
+        MPI_Offset length;
+        std::string name;
+    };
+
     struct variable
     {
-        int index, dimensions, attributes, type;
-        std::vector<int> dimension_ids;
+        int index, attributes, type;
+        std::vector<dimension> dimensions;
     };
 
     struct value_info
@@ -98,22 +107,16 @@ namespace pio::netcdf
         
         template<typename _Type, READ_TEMP>
         const io::promise<_Type>
-        get_variable_values(const std::string& name) const;
+        get_variable_values(
+            const std::string& name, 
+            const std::vector<MPI_Offset>& start,
+            const std::vector<MPI_Offset>& count) const;
 
-        READ io::result<MPI_Offset>
-        get_dimension(const std::string& name) const
-        {
-            int id = 0;
-            auto err = ncmpi_inq_dimid(handle, name.c_str(), &id);
-            if (err != NC_NOERR) return { err };
+        READ io::result<dimension>
+        get_dimension(int id) const;
 
-            MPI_Offset offset = 0;
-            char _name[MAX_NAME_LENGTH];
-            err = ncmpi_inq_dim(handle, id, _name, &offset);
-            if (err != NC_NOERR) return { err };
-
-            return { offset };
-        }
+        READ io::result<dimension>
+        get_dimension(const std::string& name) const;
 
         // Each variable is different type and has unique memory region
         /*
@@ -166,7 +169,14 @@ namespace pio::netcdf
         }*/
 
         /* WRITE / READ-WRITE */
-
+        template<typename _Type, WRITE_TEMP>
+        const io::promise<_Type>
+        write_variable(
+            const std::string& name,
+            const typename _Type::type* data,
+            const std::size_t& size,
+            const std::vector<MPI_Offset>& offset,
+            const std::vector<MPI_Offset>& count);
 
 
     private:
