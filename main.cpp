@@ -32,11 +32,10 @@ static void copy(
 int main(int argc, char** argv)
 {
     MPI_Init(&argc, &argv);
+    
+    io::distributor dist(MPI_COMM_WORLD);
 
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-    if (rank == 0)
+    if (dist.rank() == 0)
     {
         // Read in the base exodus file
         exodus::file<std::size_t, io::access::ro> in("../box-hex.exo");
@@ -78,18 +77,62 @@ int main(int argc, char** argv)
         netcdf::file<io::access::rw> f("../test.exo");
         assert(f.good());
 
-        //const auto vars = in.variable_names();
-        //assert(vars.good());
-        //const auto var_names = vars.value();
+        // Get the variable names
+        const auto vars = in.variable_names();
+        assert(vars.good());
+        const auto var_names = vars.value();
 
-        // Set a constant list of variables for the demonstration
-        // run with mpirun -n 3 ./pio which will give each mpi process
-        // its own variable
-        std::vector<std::string> var_names = {"connect1", "connect2", "coor_names"};
+        // Populate the distributor's volumes
+        for (uint32_t i = 0; i < var_names.size(); i++)
+        {
+            // Grab variable info
+            const auto var_info_r = in.get_variable_info(var_names[i]);
+            assert(var_info_r);
+            const auto& var_info = var_info_r.value();
+
+            // Create the data volume corresponding to the variable
+            io::distributor::volume volume;
+            volume.data_index = i;
+            volume.dimensions.reserve(var_info.dimensions.size());
+
+            // Get the dimension information of this variable
+            bool good = true;
+            for (const auto& dim : var_info.dimensions)
+            {   
+                if (!dim.length) { good = false; break; }
+                volume.dimensions.push_back(dim.length);
+                volume.data_type = var_info.type;
+            }
+
+            // If none of the dimensions have zero length, add it to the list
+            if (good) dist.data_volumes.push_back(volume);
+        }
 
         {
+            // with the distributor
+            // we call 
+            auto tasks_r = dist.get_tasks();
+            assert(tasks_r.good());
+            const auto& tasks = tasks_r.value();
+            // then
+            /*
+              for (const auto& subvol : tasks)
+              {
+                const auto& name = var_names[subvol.volume_index];
+                const auto var_info = in.get_variable_info(name);
+                assert(var_info.good())
+                switch (var_info.value().type)
+                {
+                case types::Int::nc:    copy<types::Int>(name, subvol.offsets, subvol.counts, in, f);    break;
+                case types::Float::nc:  copy<types::Float>(name, subvol.offsets, subvol.counts, in, f);  break;
+                case types::Double::nc: copy<types::Double>(name, subvol.offsets, subvol.counts, in, f); break;
+                case types::Char::nc:   copy<types::Char>(name, subvol.offsets, subvol.counts, in, f);   break;
+                }
+              }      
+            */
+
             // go through and copy
-            const auto& name = var_names[rank];
+            const auto& name = var_names[dist.rank()];
             std::cout << name << "\n";
             const auto var_info = in.get_variable_info(name);
             assert(var_info.good());
@@ -105,10 +148,10 @@ int main(int argc, char** argv)
             {
                 switch (var_info.value().type)
                 {
-                case type::Int::nc:    copy<type::Int>(name, start, counts, in, f);    break;
-                case type::Float::nc:  copy<type::Float>(name, start, counts, in, f);  break;
-                case type::Double::nc: copy<type::Double>(name, start, counts, in, f); break;
-                case type::Char::nc:   copy<type::Char>(name, start, counts, in, f);   break;
+                case types::Int::nc:    copy<types::Int>(name, start, counts, in, f);    break;
+                case types::Float::nc:  copy<types::Float>(name, start, counts, in, f);  break;
+                case types::Double::nc: copy<types::Double>(name, start, counts, in, f); break;
+                case types::Char::nc:   copy<types::Char>(name, start, counts, in, f);   break;
                 }
             }
         }

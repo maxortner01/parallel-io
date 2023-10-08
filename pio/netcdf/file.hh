@@ -173,7 +173,7 @@ namespace pio::netcdf
         const io::promise<_Type>
         write_variable(
             const std::string& name,
-            const typename _Type::type* data,
+            const typename _Type::integral_type* data,
             const std::size_t& size,
             const std::vector<MPI_Offset>& offset,
             const std::vector<MPI_Offset>& count);

@@ -212,10 +212,10 @@ namespace pio::netcdf
 
         return promise;
     }
-    FWD_DEC_READ(const io::promise<io::Type<NC_CHAR>>, get_variable_values, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_READ(const io::promise<io::Type<NC_FLOAT>>, get_variable_values, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_READ(const io::promise<io::Type<NC_DOUBLE>>, get_variable_values, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_READ(const io::promise<io::Type<NC_INT>>, get_variable_values, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_READ(const io::promise<io::type<NC_CHAR>>, get_variable_values, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_READ(const io::promise<io::type<NC_FLOAT>>, get_variable_values, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_READ(const io::promise<io::type<NC_DOUBLE>>, get_variable_values, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_READ(const io::promise<io::type<NC_INT>>, get_variable_values, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
 
     template<io::access _Access>
     template<typename>
@@ -255,7 +255,7 @@ namespace pio::netcdf
     const io::promise<_Type>
     file<_Access>::write_variable(
         const std::string& name,
-        const typename _Type::type* data,
+        const typename _Type::integral_type* data,
         const std::size_t& size,
         const std::vector<MPI_Offset>& offset,
         const std::vector<MPI_Offset>& count)
@@ -294,10 +294,10 @@ namespace pio::netcdf
 
         return promise;
     }
-    FWD_DEC_WRITE(const io::promise<type::Char>, write_variable, const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_WRITE(const io::promise<type::Int>, write_variable, const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_WRITE(const io::promise<type::Double>, write_variable, const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_WRITE(const io::promise<type::Float>, write_variable, const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_WRITE(const io::promise<types::Char>, write_variable, const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_WRITE(const io::promise<types::Int>, write_variable, const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_WRITE(const io::promise<types::Double>, write_variable, const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_WRITE(const io::promise<types::Float>, write_variable, const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
 
 #pragma endregion WRITE
 

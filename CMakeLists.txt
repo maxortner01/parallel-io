@@ -13,6 +13,13 @@ find_path(MPICH_INCLUDE_DIR mpi.h)
 # Include the current spack view
 include_directories(${MPICH_INCLUDE_DIR})
 
-add_executable(pio main.cpp ${CMAKE_SOURCE_DIR}/pio/io.cpp ${CMAKE_SOURCE_DIR}/pio/netcdf/file.cpp)
+set(SRC_FILES
+${CMAKE_SOURCE_DIR}/pio/netcdf/file.cpp
+${CMAKE_SOURCE_DIR}/pio/io/type.cpp
+${CMAKE_SOURCE_DIR}/pio/io/distributor.cpp)
+
+add_executable(pio 
+    main.cpp 
+    ${SRC_FILES})
 
 target_link_libraries(pio ${MPI} ${PNETCDF} ${EXODUS})
