@@ -5,9 +5,25 @@
 #include <iostream>
 #include <algorithm>
 #include <cassert>
+#include <limits>
 
 namespace pio::io
 {
+    distributor::subvolume distributor::subvolume::split()
+    {
+        std::cout << counts.size() << "\n";
+        const auto max_dim_size = std::max_element(counts.begin(), counts.end());
+        const auto index = std::distance(counts.begin(), max_dim_size);
+
+        const auto new_size = *max_dim_size / 2;
+
+        distributor::subvolume other_half(*this);
+        other_half.counts[index] = new_size;
+        counts[index] = new_size + (*max_dim_size % 2 == 0?0:1);
+        offsets[index] += other_half.counts[index];
+        return other_half;
+    }
+
     distributor::distributor(MPI_Comm communicator) :
         _rank([](auto comm) -> auto
         {
@@ -36,93 +52,137 @@ namespace pio::io
     io::result<std::vector<distributor::subvolume>>
     distributor::get_tasks() const
     {
-        auto sorted_volumes = data_volumes;
-        // if product of counts vanishes, don't add to return
-        std::sort(sorted_volumes.begin(), sorted_volumes.end(), 
-        [](const auto& a, const auto& b) 
-        {
-            return a.cell_count() * nc_sizeof(a.data_type) < b.cell_count() * nc_sizeof(b.data_type);
-        });
+        const auto first_rank = 0U;
+        const auto count = processes();
 
-        std::remove_if(sorted_volumes.begin(), sorted_volumes.end(),
-        [](const auto& a)
-        {
-            for (const auto& dim : a.dimensions)
-                if (!dim) return true;
-            return false;
-        });
-
-        const auto total_size = std::accumulate(sorted_volumes.begin(), sorted_volumes.end(), 0,
+        // We want to figure out how many cells there are in total...
+        const auto total_size = std::accumulate(data_volumes.begin(), data_volumes.end(), 0,
         [](auto val, auto v)
         {
-            return val + v.cell_count(); // * nc_sizeof(v.data_type);
+            return val + v.cell_count();
         });
 
-        std::vector<distributor::subvolume> volumes;
+        // ... so that we can figure out about how many cells each process should have
+        const auto cells_per_process = total_size / (float)count;
 
-        std::size_t last_volume = 0;
-        uint32_t volume_index = 0;
-        uint32_t current_rank = 0;
-        std::size_t memory_index = 0;
-        const auto amount = total_size / (std::size_t)processes();
+        // Now we step through the entire cell count to find out how many 
+        // processes per volume
+        std::size_t memory_index = 0, last_volume_location = 0;
+        uint32_t current_rank = 0, volume_index = 0;
+        std::vector<std::vector<uint32_t>> process_counts(data_volumes.size());
         while (memory_index < total_size)
         {
-            const auto next_block = amount * (current_rank + 1);
-
-            const auto next_volume = [&]()
+            const auto next_block_location = cells_per_process * (current_rank + 1);
+            const auto next_volume_location = [&]()
             {
-                if (volume_index == sorted_volumes.size() - 1) return total_size;
-                return std::accumulate(sorted_volumes.begin(), sorted_volumes.begin() + volume_index + 1, 0,
+                if (volume_index == data_volumes.size() - 1) return total_size;
+                return std::accumulate(data_volumes.begin(), data_volumes.begin() + volume_index + 1, 0,
                 [](auto val, auto& v)
                 {
                     return val + v.cell_count();
                 });
             }();
-
-            if (next_volume < next_block)
+            
+            // If the volume ends before the block, increment this volume's process count
+            if (next_volume_location < next_block_location)
             {
-                if (current_rank == rank())
-                {
-                    distributor::subvolume sub_vol;
-                    sub_vol.volume_index = sorted_volumes[volume_index].data_index;
-                    
-                    // we want to generate the offsets and counts for 
-                    // memory_index - last_volume to next_volume - last_volume - 1
-                    
-                    volumes.push_back(sub_vol);
-                    std::cout << "(" << current_rank << ") from " << memory_index - last_volume << " to " << next_volume - last_volume - 1 << " in volume " << sorted_volumes[volume_index].data_index << "\n";
-                }
-                memory_index = next_volume;
-                last_volume = next_volume;
+                process_counts[volume_index].push_back(current_rank);
+                memory_index = next_volume_location;
+                last_volume_location = next_volume_location;
                 volume_index++;
             }
+            // Otherwise, if the block ends before the volume, increment the proccess count
+            // but don't change volumes
             else
             {
-                if (current_rank == rank())
-                {
-                    distributor::subvolume sub_vol;
-                    sub_vol.volume_index = sorted_volumes[volume_index].data_index;
-
-                    // we want to generate the offsets and counts for 
-                    // memory_index - last_volume to next_block - last_volume - 1
-
-                    volumes.push_back(sub_vol);
-                    std::cout << "(" << current_rank << ") from " << memory_index - last_volume << " to " << next_block - last_volume - 1 << " in volume " << sorted_volumes[volume_index].data_index << "\n";
-                }
-                memory_index = next_block;
+                process_counts[volume_index].push_back(current_rank);
+                memory_index = next_block_location;
                 current_rank++;
             }
         }
 
+        if (!rank())
+        {
+            uint32_t i = 0;
+            for (const auto& process_rank : process_counts)
+            {
+                std::cout << "vol: " << i++ << " has ranks ";
+                for (const auto& rank : process_rank) std::cout << rank << " ";
+                std::cout << "\n";
+            }
+        }
+
+        std::vector<distributor::subvolume> volumes;
+
+        volume_index = 0;
+        for (const auto& volume_ranks : process_counts)
+        {
+            const auto& dimensions = data_volumes[volume_index].dimensions;
+            const auto it = std::find(volume_ranks.begin(), volume_ranks.end(), rank());
+            if (it != volume_ranks.end())
+            {
+                if (volume_ranks.size() == 1)
+                {
+                    volumes.push_back([&](){
+                        distributor::subvolume sub_vol;
+                        for (const auto& dim : dimensions)
+                            sub_vol.counts.push_back(dim);
+                        sub_vol.offsets = std::vector<MPI_Offset>(dimensions.size(), 0);
+                        sub_vol.volume_index = volume_index;
+                        return sub_vol;
+                    }());
+                }
+                else if (volume_ranks.size())
+                {
+                    std::vector<distributor::subvolume> volume;
+                    volume.push_back([&](){
+                        distributor::subvolume vol;
+                        for (const auto& dim : dimensions)
+                            vol.counts.push_back(dim);
+                        vol.offsets = std::vector<MPI_Offset>(dimensions.size(), 0);
+                        vol.volume_index = volume_index;
+                        return vol;
+                    }());
+
+                    // Subdivide this volume 
+                    for (uint32_t i = 0; i < volume_ranks.size() - 1; i++)
+                    {
+                        auto [max_cell_count, max_index] = std::pair(
+                            std::numeric_limits<uint32_t>::min(),
+                            -1
+                        );
+
+                        for (uint32_t i = 0; i < volume.size(); i++)
+                        {
+                            const auto cell_count = std::accumulate(
+                                volume[i].counts.begin(), 
+                                volume[i].counts.end(), 
+                                1, 
+                                std::multiplies<std::size_t>()
+                            );
+                            if (cell_count > max_cell_count) 
+                            {
+                                max_cell_count = cell_count;
+                                max_index = i;
+                            }
+                        }
+
+                        volume.push_back(volume[max_index].split());
+                    }
+
+                    assert(volume.size() == volume_ranks.size());
+                    for (auto i = 0; i < volume_ranks.size(); i++)
+                        if (volume_ranks[i] == rank())
+                            volumes.push_back(volume[i]);
+                }
+            }
+            volume_index++;
+        }
+
+        std::cout << "rank " << rank() << " has " << volumes.size() << " volumes:\n";
+        for (const auto& vol : volumes)
+            std::cout << "  " << vol.volume_index << "\n";
+
         return { volumes };
-
-
-        /*
-        amount = total_size / processes() is the amount of bytes per process
-        Begin stepping through the total data
-        When the edge of a data_volume is hit, or amount is hit generate a subvolume
-        When an edge is hit: set the total size to be total_size - size of this volume
-          then continue stepping
-        */
     }   
 }

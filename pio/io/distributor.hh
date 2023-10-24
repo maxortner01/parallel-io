@@ -39,6 +39,8 @@ namespace pio::io
             uint32_t volume_index;
             std::vector<MPI_Offset> offsets;
             std::vector<MPI_Offset> counts;
+
+            subvolume split();
         };
 
         std::vector<volume> data_volumes;

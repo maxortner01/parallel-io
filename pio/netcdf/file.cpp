@@ -88,7 +88,7 @@ namespace pio::netcdf
         if (err != NC_NOERR || index < 0) return { err };
 
         int dimensions = 0;
-        variable var;
+        variable var{0};
         var.index = index;
         err = ncmpi_inq_varndims(handle, index, &dimensions);
         if (err != NC_NOERR) return { err };
@@ -199,7 +199,8 @@ namespace pio::netcdf
         if (!info.good()) return { info.error() };
         if (info.value().type != _Type::nc) return { -1 };
 
-        io::promise<_Type> promise(handle, { info.value().size }, 1);
+        const auto size = std::accumulate(count.begin(), count.end(), 1, std::multiplies<size_t>());
+        io::promise<_Type> promise(handle, { (uint32_t)size }, 1);
         const auto err = _Type::func(
             handle,
             info.value().index,
@@ -260,18 +261,22 @@ namespace pio::netcdf
         const std::vector<MPI_Offset>& offset,
         const std::vector<MPI_Offset>& count)
     {
+        std::cout << "Doing " << name << "\n";
         if (!data || !size) return { 0 };
+        std::cout << "Checkpoint (" << name << ") 1\n";
         if (offset.size() != count.size()) return { 1 };
+        std::cout << "Checkpoint (" << name << ") 2\n";
         
         // data_size is equivalent to volume of data
         const auto product = std::accumulate(count.begin(), count.end(), 1, std::multiplies<size_t>());
         if (product != size) return { 2 };
+        std::cout << "Checkpoint (" << name << ") 3\n";
         
         variable var{0};
         if constexpr (_Access == io::access::rw)
         {
             const auto info = get_variable_info(name);
-            if (!info.good()) return { info.error() };
+            if (!info.good()) { printf("BAD STUFF HERE\n"); return { info.error() }; };
             var = std::move(info.value());
         }
         else assert(false);
@@ -280,6 +285,9 @@ namespace pio::netcdf
         if (var.dimensions.size() != offset.size()) return { 4 };
 
         io::promise<_Type> promise(handle, { 0 }, 1);
+        
+        std::cout << "INDEX (" << name << "): " << var.index << " request " << promise.requests()[0] << " then ";
+
         const auto err = ncmpi_iput_vara(
             handle,
             var.index,
@@ -291,6 +299,7 @@ namespace pio::netcdf
             promise.requests()
         );
         if (err != NC_NOERR) return { err };
+        std::cout << promise.requests()[0] << "\n";
 
         return promise;
     }

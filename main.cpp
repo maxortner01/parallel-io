@@ -18,15 +18,20 @@ static void copy(
     netcdf::file<io::access::rw>& out)
 {
     const auto promise = in.get_variable_values<T>(name, start, counts);
+    if (!promise.good()) std::cout << "ERR: " << promise.error() << "\n";
     assert(promise.good());
     promise.wait_for_completion();
     const auto count = promise.template get<0>().count;
     const auto* data = promise.template get<0>().value();
+
     const auto write_promise = out.write_variable<T>(name, data, count, start, counts);
     
-    if (!write_promise.good()) { std::cout << name << " failed\n"; return;}
+    if (!write_promise.good()) { std::cout << name << " failed (" << write_promise.error() << ")\n"; return;}
 
-    write_promise.wait_for_completion();
+    std::cout << "waiting\n";
+    auto status = write_promise.wait_for_completion();
+    for (auto& s : status) std::cout << "  status: " << s << "\n";
+    std::cout << "done\n";
 }
 
 int main(int argc, char** argv)
@@ -115,12 +120,23 @@ int main(int argc, char** argv)
             assert(tasks_r.good());
             const auto& tasks = tasks_r.value();
             // then
-            /*
-              for (const auto& subvol : tasks)
-              {
-                const auto& name = var_names[subvol.volume_index];
+            
+            for (const auto& subvol : tasks)
+            {
+                const auto name_index = dist.data_volumes[subvol.volume_index].data_index;
+                const auto& name = var_names[name_index];
                 const auto var_info = in.get_variable_info(name);
-                assert(var_info.good())
+                assert(var_info.good());
+
+                std::cout << name << "\n  ";
+                for (auto& count : subvol.counts)
+                    std::cout << count << " ";
+                std::cout << "\n  ";
+                for (auto & offset : subvol.offsets)
+                    std::cout << offset << " ";
+                std::cout << "\n";
+
+                if (name == "qa_records") continue;
                 switch (var_info.value().type)
                 {
                 case types::Int::nc:    copy<types::Int>(name, subvol.offsets, subvol.counts, in, f);    break;
@@ -128,9 +144,10 @@ int main(int argc, char** argv)
                 case types::Double::nc: copy<types::Double>(name, subvol.offsets, subvol.counts, in, f); break;
                 case types::Char::nc:   copy<types::Char>(name, subvol.offsets, subvol.counts, in, f);   break;
                 }
-              }      
-            */
+            }      
+            
 
+            /*
             // go through and copy
             const auto& name = var_names[dist.rank()];
             std::cout << name << "\n";
@@ -153,8 +170,9 @@ int main(int argc, char** argv)
                 case types::Double::nc: copy<types::Double>(name, start, counts, in, f); break;
                 case types::Char::nc:   copy<types::Char>(name, start, counts, in, f);   break;
                 }
-            }
+            }*/
         }
+        std::cout << "Done " << dist.rank() << "\n";
     }
 
     MPI_Finalize();
