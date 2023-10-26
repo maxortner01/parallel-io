@@ -20,7 +20,7 @@ wait(
     std::vector<int> statuses(data.request_count, 0);
     assert(data.request_count && data.requests.get());
     std::cout << "Waiting on request " << data.requests.get()[0] << "\n";
-    const auto err = ncmpi_wait_all(file.handle, data.request_count, data.requests.get(), statuses.data());
+    const auto err = ncmpi_wait(file.handle, data.request_count, data.requests.get(), statuses.data());
     if (err != NC_NOERR) { std::cout << ncmpi_strerror(err) << "\n"; assert(false); }
     return statuses;
 }
@@ -48,10 +48,16 @@ read(
     const std::vector<MPI_Offset>& counts,
     const netcdf::file<io::access::ro>& in)
 {
+    auto err = ncmpi_begin_indep_data(in.handle);
+    if (err != NC_NOERR) { std::cout << "Err: " << ncmpi_strerror(err) << "\n"; assert(false); }
+
     const auto read_in = in.get_variable_values<_Type>(name, offsets, counts);
     assert(read_in.good());
     const auto& data = read_in.value();
     auto statuses = wait(in, data);
+    
+    err = ncmpi_end_indep_data(in.handle);
+    if (err != NC_NOERR) { std::cout << "Err: " << ncmpi_strerror(err) << "\n"; assert(false); }
     
     using data_type = typename _Type::integral_type;
     std::vector<data_type> ret(data.cell_count);
