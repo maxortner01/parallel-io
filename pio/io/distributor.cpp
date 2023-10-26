@@ -11,7 +11,6 @@ namespace pio::io
 {
     distributor::subvolume distributor::subvolume::split()
     {
-        std::cout << counts.size() << "\n";
         const auto max_dim_size = std::max_element(counts.begin(), counts.end());
         const auto index = std::distance(counts.begin(), max_dim_size);
 
@@ -84,7 +83,7 @@ namespace pio::io
             }();
             
             // If the volume ends before the block, increment this volume's process count
-            if (next_volume_location < next_block_location)
+            if (next_volume_location <= next_block_location)
             {
                 process_counts[volume_index].push_back(current_rank);
                 memory_index = next_volume_location;
@@ -98,17 +97,6 @@ namespace pio::io
                 process_counts[volume_index].push_back(current_rank);
                 memory_index = next_block_location;
                 current_rank++;
-            }
-        }
-
-        if (!rank())
-        {
-            uint32_t i = 0;
-            for (const auto& process_rank : process_counts)
-            {
-                std::cout << "vol: " << i++ << " has ranks ";
-                for (const auto& rank : process_rank) std::cout << rank << " ";
-                std::cout << "\n";
             }
         }
 
@@ -179,9 +167,9 @@ namespace pio::io
             volume_index++;
         }
 
-        std::cout << "rank " << rank() << " has " << volumes.size() << " volumes:\n";
-        for (const auto& vol : volumes)
-            std::cout << "  " << vol.volume_index << "\n";
+        //std::cout << "rank " << rank() << " has " << volumes.size() << " volumes:\n";
+        //for (const auto& vol : volumes)
+        //    std::cout << "  " << vol.volume_index << "\n";
 
         return { volumes };
     }   

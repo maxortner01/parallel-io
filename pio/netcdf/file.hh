@@ -74,7 +74,15 @@ namespace pio::netcdf
         int type;
         value_info() : index(0), size(0) { }
     };
-    
+
+    template<typename _Type>
+    struct GetData
+    {
+        std::size_t cell_count, request_count;
+        std::shared_ptr<typename _Type::integral_type> data;
+        std::shared_ptr<int> requests;
+    };
+
     template<io::access _Access>
     struct file
     {
@@ -106,7 +114,8 @@ namespace pio::netcdf
         get_variable_value_info(const std::string& name) const;
         
         template<typename _Type, READ_TEMP>
-        const io::promise<_Type>
+        //const io::promise<_Type>
+        io::result<GetData<_Type>>
         get_variable_values(
             const std::string& name, 
             const std::vector<MPI_Offset>& start,
@@ -170,7 +179,8 @@ namespace pio::netcdf
 
         /* WRITE / READ-WRITE */
         template<typename _Type, WRITE_TEMP>
-        const io::promise<_Type>
+        //const io::promise<_Type>
+        io::result<std::shared_ptr<int>>
         write_variable(
             const std::string& name,
             const typename _Type::integral_type* data,
@@ -179,7 +189,7 @@ namespace pio::netcdf
             const std::vector<MPI_Offset>& count);
 
 
-    private:
+    //private:
         int handle, err;
         bool _good;
     };
