@@ -114,7 +114,6 @@ namespace pio::netcdf
         get_variable_value_info(const std::string& name) const;
         
         template<typename _Type, READ_TEMP>
-        //const io::promise<_Type>
         io::result<GetData<_Type>>
         get_variable_values(
             const std::string& name, 
@@ -179,7 +178,6 @@ namespace pio::netcdf
 
         /* WRITE / READ-WRITE */
         template<typename _Type, WRITE_TEMP>
-        //const io::promise<_Type>
         io::result<std::shared_ptr<int>>
         write_variable(
             const std::string& name,
@@ -188,8 +186,8 @@ namespace pio::netcdf
             const std::vector<MPI_Offset>& offset,
             const std::vector<MPI_Offset>& count);
 
-
-    //private:
+        int get_handle() const { return handle; }
+    private:
         int handle, err;
         bool _good;
     };

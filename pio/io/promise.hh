@@ -174,9 +174,7 @@ namespace pio::io
             std::vector<int> status(req_count); 
             auto* requests = const_cast<int*>(_requests.value().ids.get());
 
-            std::cout << "starting\n";
             const auto error = ncmpi_wait_all(_handle, req_count, requests, status.data());
-            std::cout << "done\n";
             if (error == NC_NOERR)
             {
                 std::vector<std::string> ret;
@@ -184,7 +182,6 @@ namespace pio::io
                 for (const auto& i : status) ret.push_back(std::string(ncmpi_strerror(i)));
                 return ret;
             }
-            std::cout << "ERROR!!!" << error << "\n";
             return { };
         }
 

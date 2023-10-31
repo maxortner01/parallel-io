@@ -167,10 +167,6 @@ namespace pio::io
             volume_index++;
         }
 
-        //std::cout << "rank " << rank() << " has " << volumes.size() << " volumes:\n";
-        //for (const auto& vol : volumes)
-        //    std::cout << "  " << vol.volume_index << "\n";
-
         return { volumes };
     }   
 }

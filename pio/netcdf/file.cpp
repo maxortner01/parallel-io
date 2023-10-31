@@ -210,12 +210,12 @@ namespace pio::netcdf
         using data_type = typename _Type::integral_type;
         data.data = std::shared_ptr<data_type>(
             (data_type*)std::calloc(sizeof(data_type), size),
-            [](auto* ptr) { std::cout << "freeing data\n"; std::free(ptr); }
+            [](auto* ptr) { std::free(ptr); }
         ),
 
         data.requests = std::shared_ptr<int>(
             (int*)std::calloc(sizeof(int), data.request_count),
-            [](auto* ptr) { std::cout << "freeing requests\n"; std::free(ptr); }
+            [](auto* ptr) { std::free(ptr); }
         );
 
         const auto err = _Type::func(
@@ -271,7 +271,6 @@ namespace pio::netcdf
 
     template<io::access _Access>
     template<typename _Type, typename>
-    //const io::promise<_Type>
     io::result<std::shared_ptr<int>>
     file<_Access>::write_variable(
         const std::string& name,
@@ -280,7 +279,6 @@ namespace pio::netcdf
         const std::vector<MPI_Offset>& offset,
         const std::vector<MPI_Offset>& count)
     {
-        std::cout << "Doing " << name << "\n";
         if (!data || !size) return { 0 };
         if (offset.size() != count.size()) return { 1 };
         
@@ -300,7 +298,6 @@ namespace pio::netcdf
         if (_Type::nc != var.type) return { 3 };
         if (var.dimensions.size() != offset.size()) return { 4 };
 
-        //io::promise<_Type> promise(handle, { 0 }, 1);
         auto val = std::shared_ptr<int>(
             (int*)std::calloc(sizeof(int), 1),
             [](auto* ptr) { std::free(ptr); }
@@ -320,11 +317,6 @@ namespace pio::netcdf
 
         return val;
     }
-    //FWD_DEC_WRITE(const io::promise<types::Char>, write_variable, const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    //FWD_DEC_WRITE(const io::promise<types::Int>, write_variable, const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    //FWD_DEC_WRITE(const io::promise<types::Double>, write_variable, const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    //FWD_DEC_WRITE(const io::promise<types::Float>, write_variable, const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-
     FWD_DEC_WRITE(io::result<std::shared_ptr<int>>, write_variable<types::Char>, const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
     FWD_DEC_WRITE(io::result<std::shared_ptr<int>>, write_variable<types::Int>, const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
     FWD_DEC_WRITE(io::result<std::shared_ptr<int>>, write_variable<types::Double>, const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
