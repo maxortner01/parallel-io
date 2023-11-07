@@ -282,7 +282,7 @@ namespace pio::netcdf
 
     template<io::access _Access>
     template<typename _Type, typename>
-    io::result<std::shared_ptr<int>>
+    const io::promise<io::access::wo, _Type>
     file<_Access>::write_variable(
         const std::string& name,
         const typename _Type::integral_type* data,
@@ -309,12 +309,14 @@ namespace pio::netcdf
         if (_Type::nc != var.type) return { 3 };
         if (var.dimensions.size() != offset.size()) return { 4 };
 
-        auto val = std::shared_ptr<int>(
-            (int*)std::calloc(sizeof(int), 1),
-            [](auto* ptr) { std::free(ptr); }
-        );
+        // need to find clever way to *not* require that counts array for this
+        // type of promise
+        io::promise<io::access::wo, _Type> promise(get_handle(), { 0 });
 
-        const auto err = ncmpi_iput_vara(
+        auto err = ncmpi_begin_indep_data(get_handle());
+        if (err != NC_NOERR) return { 5 };
+
+        err = ncmpi_iput_vara(
             handle,
             var.index,
             offset.data(),
@@ -322,16 +324,22 @@ namespace pio::netcdf
             data,
             size,
             MPI_DATATYPE_NULL,
-            val.get()
+            promise.requests()
         );
         if (err != NC_NOERR) return { err };
 
-        return val;
+        return promise;
     }
-    FWD_DEC_WRITE(io::result<std::shared_ptr<int>>, write_variable<types::Char>, const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_WRITE(io::result<std::shared_ptr<int>>, write_variable<types::Int>, const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_WRITE(io::result<std::shared_ptr<int>>, write_variable<types::Double>, const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_WRITE(io::result<std::shared_ptr<int>>, write_variable<types::Float>, const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    // Need to utilize the macro here (how to deal with that comma...)
+    template const io::promise<io::access::wo, types::Double> file<io::access::wo>::write_variable<types::Double>(const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const io::promise<io::access::wo, types::Float> file<io::access::wo>::write_variable<types::Float>(const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const io::promise<io::access::wo, types::Int> file<io::access::wo>::write_variable<types::Int>(const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const io::promise<io::access::wo, types::Char> file<io::access::wo>::write_variable<types::Char>(const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    
+    template const io::promise<io::access::wo, types::Double> file<io::access::rw>::write_variable<types::Double>(const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const io::promise<io::access::wo, types::Float> file<io::access::rw>::write_variable<types::Float>(const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const io::promise<io::access::wo, types::Int> file<io::access::rw>::write_variable<types::Int>(const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const io::promise<io::access::wo, types::Char> file<io::access::rw>::write_variable<types::Char>(const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
 
 #pragma endregion WRITE
 

@@ -12,69 +12,6 @@ using namespace pio;
 
 #define mpi_assert(expr) if (!(expr)) { std::cout << "bad at " << __LINE__ << "\n"; MPI_Abort(MPI_COMM_WORLD, 2); return false; }
 
-template<typename _Type, io::access file_access>
-std::vector<int>
-wait(
-    const netcdf::file<file_access>& file,
-    const netcdf::GetData<_Type>& data)
-{
-    std::vector<int> statuses(data.request_count, 0);
-    assert(data.request_count && data.requests.get());
-    const auto err = ncmpi_wait(file.get_handle(), data.request_count, data.requests.get(), statuses.data());
-    if (err != NC_NOERR) { std::cout << ncmpi_strerror(err) << "\n"; assert(false); }
-    return statuses;
-}
-
-template<typename _Type, io::access file_access>
-std::vector<int>
-wait(
-    const netcdf::file<file_access>& file,
-    int* requests,
-    const std::size_t& request_count)
-{
-    std::vector<int> statuses(request_count, 0);
-    const auto err = ncmpi_wait(file.get_handle(), request_count, requests, statuses.data());
-    if (err != NC_NOERR) { std::cout << ncmpi_strerror(err) << "\n"; assert(false); }
-    return statuses;
-}
-
-template<typename _Type>
-bool write(
-    const std::string& name,
-    const std::vector<MPI_Offset>& offsets,
-    const std::vector<MPI_Offset>& counts,
-    netcdf::file<io::access::rw>& out,
-    const typename _Type::integral_type* data,
-    const std::size_t& cell_count)
-{
-    auto err = ncmpi_begin_indep_data(out.get_handle());
-    if (err != NC_NOERR) { std::cout << "Err: " << ncmpi_strerror(err) << "\n"; return false; }
-
-    const auto res = out.write_variable<_Type>(name, data, cell_count, offsets, counts);
-    if (!res.good()) { std::cout << "Failed with code " << res.error() << "\n"; return false; }
-    const auto& requests = res.value();
-
-    const auto statuses = wait<_Type>(out, requests.get(), 1);
-    //err = ncmpi_end_indep_data(out.get_handle());
-    //if (err != NC_NOERR) { std::cout << "Err: " << ncmpi_strerror(err) << "\n"; return false; }
-
-    return true;
-}
-
-template<typename _Type>
-void copy(
-    const std::string& name,
-    const std::vector<MPI_Offset>& offsets,
-    const std::vector<MPI_Offset>& counts,
-    const netcdf::file<io::access::ro>& in,
-    netcdf::file<io::access::rw>& out)
-{
-    const auto data_r = in.read_variable_sync<_Type>(name, offsets, counts);
-    assert(data_r.good());
-    const auto data = data_r.value();
-    assert(write<_Type>(name, offsets, counts, out, data.data(), data.size()));
-}
-
 bool 
 duplicate_file(
     const std::string& in_name, 
@@ -196,10 +133,10 @@ int main(int argc, char** argv)
             
             switch (data_volume.data_type)
             {
-            case types::Int::nc:    copy<types::Int>(name, subvol.offsets, subvol.counts, in, f);    break;
-            case types::Float::nc:  copy<types::Float>(name, subvol.offsets, subvol.counts, in, f);  break;
-            case types::Double::nc: copy<types::Double>(name, subvol.offsets, subvol.counts, in, f); break;
-            case types::Char::nc:   copy<types::Char>(name, subvol.offsets, subvol.counts, in, f);   break;
+            case types::Int::nc:    netcdf::copy_variable<types::Int>(name, subvol.offsets, subvol.counts, in, f);    break;
+            case types::Float::nc:  netcdf::copy_variable<types::Float>(name, subvol.offsets, subvol.counts, in, f);  break;
+            case types::Double::nc: netcdf::copy_variable<types::Double>(name, subvol.offsets, subvol.counts, in, f); break;
+            case types::Char::nc:   netcdf::copy_variable<types::Char>(name, subvol.offsets, subvol.counts, in, f);   break;
             }
         }   
     }

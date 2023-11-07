@@ -135,7 +135,7 @@ namespace pio::netcdf
 
         /* WRITE / READ-WRITE */
         template<typename _Type, WRITE_TEMP>
-        io::result<std::shared_ptr<int>>
+        const io::promise<io::access::wo, _Type>
         write_variable(
             const std::string& name,
             const typename _Type::integral_type* data,
@@ -148,4 +148,25 @@ namespace pio::netcdf
         int handle, err;
         bool _good;
     };
+
+    template<typename _Type, io::access _Read, io::access _Write>
+    bool copy_variable(
+        const std::string& name,
+        const std::vector<MPI_Offset>& offsets,
+        const std::vector<MPI_Offset>& counts,
+        const file<_Read>& in,
+        file<_Write>& out
+        )
+    {
+        const auto data_r = in.template read_variable_sync<_Type>(name, offsets, counts);
+        if (!data_r.good()) return false;
+        const auto data = data_r.value();
+        
+        const auto res = out.template write_variable<_Type>(name, data.data(), data.size(), offsets, counts);
+        if (!res.good()) return false;
+        res.wait();
+
+        return true;
+    }
+
 }
