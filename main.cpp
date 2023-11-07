@@ -39,31 +39,6 @@ wait(
 }
 
 template<typename _Type>
-std::vector<typename _Type::integral_type>
-read(
-    const std::string& name,
-    const std::vector<MPI_Offset>& offsets,
-    const std::vector<MPI_Offset>& counts,
-    const netcdf::file<io::access::ro>& in)
-{
-    auto err = ncmpi_begin_indep_data(in.get_handle());
-    if (err != NC_NOERR) { std::cout << "Err: " << ncmpi_strerror(err) << "\n"; assert(false); }
-
-    const auto read_in = in.get_variable_values<_Type>(name, offsets, counts);
-    assert(read_in.good());
-    const auto& data = read_in.value();
-    auto statuses = wait(in, data);
-    
-    //err = ncmpi_end_indep_data(in.get_handle());
-    //if (err != NC_NOERR) { std::cout << "Err: " << ncmpi_strerror(err) << "\n"; assert(false); }
-    
-    using data_type = typename _Type::integral_type;
-    std::vector<data_type> ret(data.cell_count);
-    std::memcpy(ret.data(), data.data.get(), sizeof(data_type) * data.cell_count);
-    return ret;
-}
-
-template<typename _Type>
 bool write(
     const std::string& name,
     const std::vector<MPI_Offset>& offsets,
@@ -94,7 +69,9 @@ void copy(
     const netcdf::file<io::access::ro>& in,
     netcdf::file<io::access::rw>& out)
 {
-    const auto data = read<_Type>(name, offsets, counts, in);
+    const auto data_r = in.read_variable_sync<_Type>(name, offsets, counts);
+    assert(data_r.good());
+    const auto data = data_r.value();
     assert(write<_Type>(name, offsets, counts, out, data.data(), data.size()));
 }
 
@@ -179,6 +156,7 @@ int main(int argc, char** argv)
                 if (it_out != in_var_names.end() && it == names.end()) names.push_back(val);
             }
         }();
+        for (const auto& name : names) std::cout << name << "\n";
 
 
         // Get the info about this variable's dimensions

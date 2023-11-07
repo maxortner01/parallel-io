@@ -1,200 +1,135 @@
 #pragma once
 
-#include <iostream>
-#include <optional>
-#include <array>
-#include <any>
-#include <memory>
-#include <cassert>
 #include <vector>
-#include <sstream>
+#include <memory>
+#include <cstring>
+#include <cassert>
+
+#include "type.hh"
 
 namespace pio::io
 {
-    /**
-     * @brief Represents a single async request for a given type.
-     * 
-     * @tparam _Type The @ref Type of the object
-     */
-    template<typename _Type>
-    struct request 
-    { 
-        const static nc_type type = _Type::nc;
+    namespace impl
+    {
 
-        using integral_type = typename _Type::integral_type;
+    // https://stackoverflow.com/questions/54268425/enumerating-over-a-fold-expression
+    template<std::size_t... inds, class F>
+    constexpr void static_for_impl(std::index_sequence<inds...>, F&& f)
+    {
+        (f(std::integral_constant<std::size_t, inds>{}), ...);
+    }
 
-        std::shared_ptr<integral_type> data;
-        const uint32_t count;
+    template<std::size_t N, class F>
+    constexpr void static_for(F&& f)
+    {
+        static_for_impl(std::make_index_sequence<N>{}, std::forward<F>(f));
+    }
+    
+    template<int N, typename... Ts>
+    using NthType = typename std::tuple_element<N, std::tuple<Ts...>>::type;
 
-        /**
-         * @brief Construct a new request object and allocates data for _count objects.
-         * @param _count The amount of data objects contained in the request.
-         */
-        request(uint32_t _count) :
-            data((integral_type*)std::calloc(_count, sizeof(integral_type)), [](void* p) { if (p) std::free(p); }),
-            count(_count)
-        {   }
-        
-        /**
-         * @brief Helper function for getting a list of strings.
-         */
-        template<typename = std::enable_if<std::is_same_v<_Type, io::type<NC_CHAR>>>>
-        std::vector<std::string>
-        get_strings() const
-        {
-            std::vector<std::string> ret;
-            
-            std::stringstream ss;
-            for (uint32_t i = 0; i < count; i++)
-            {
-                if (value()[i] == '\0') 
-                {
-                    if (ss.str().length())  
-                        ret.push_back(ss.str());
-                    ss.str(std::string(""));
-                    continue;
-                }
+    } // namespace impl
 
-                ss << value()[i];
-            }
+    template<io::access _Access, typename... _Types>
+    struct promise; 
 
-            return ret;
-        }
+    // Does not need to allocate room for data, but only keeps track of requests
+    template<typename... _Types>
+    struct promise<io::access::wo, _Types...>
+    {
 
-        integral_type* value() { return data.get(); }
-        const integral_type* value() const { return data.get(); }
     };
 
-    /**
-     * @brief Represents a collection of request objects.
-     * @tparam _Types Types corresponding to the different requests
-     */
+    // Needs to allocate memory to store values *and* keep track of requests
     template<typename... _Types>
-    struct request_array
+    struct promise<io::access::ro, _Types...> // ro
     {
-        std::shared_ptr<int> ids;
-        std::array<std::any, sizeof...(_Types)> requests;
+        inline static constexpr std::size_t RequestCount = sizeof...(_Types);
 
-        /**
-         * @brief Construct a new request array object
-         * 
-         * @param counts Counts for each request
-         * @param req_count Optional parameter to specify different amount of requests (that is if there are multiple requests per request object)
-         */
-        request_array(
-            const std::array<uint32_t, sizeof...(_Types)>& counts,
-            std::optional<uint32_t> req_count = std::nullopt
-            ) :
-            _req_count(
-                req_count.has_value()?
-                req_count.value() : sizeof...(_Types)
-            ),
-            ids((int*)std::calloc(_req_count, sizeof(int)), [](void* p) { if (p) std::free(p); })
+        struct request_handler
         {
-            if (req_count.has_value()) assert(req_count.value() >= sizeof...(_Types));
-            emplace<_Types...>(0, counts);
+            std::array<int, RequestCount> requests;
+            std::array<std::pair<std::size_t, std::shared_ptr<void>>, RequestCount> data;
+        };
+
+        template<std::size_t _Index>
+        using integral_type = typename impl::NthType<_Index, _Types...>::integral_type;
+
+        promise(int handle, const std::array<std::size_t, RequestCount>& counts) :
+            _handle(handle),
+            _err(0)
+        {
+            _handler.emplace();
+            impl::static_for<RequestCount>([&](auto n) {
+                constexpr std::size_t i = n;
+
+                using _Type = impl::NthType<i, _Types...>;
+                
+                auto ptr = std::shared_ptr<void>(
+                    std::calloc(counts[i], sizeof(typename _Type::integral_type)),
+                    [](void* ptr) { std::free(ptr); }
+                );
+
+                _handler.value().data[i] = std::pair(counts[i], ptr);
+            });
         }
 
-        uint32_t request_count() const { return _req_count; }
-
-        template<uint32_t index>
-        auto&
-        get()
-        {
-            using nth_type = std::tuple_element_t<index, std::tuple<_Types...>>;
-            return *std::any_cast<request<nth_type>>(&requests[index]);
-        }
-
-        template<uint32_t index>
-        const auto&
-        get() const
-        {
-            using nth_type = std::tuple_element_t<index, std::tuple<_Types...>>;
-            return *std::any_cast<request<nth_type>>(&requests[index]);
-        }
-
-    private:
-        template<typename _Type, typename... _Rest>
-        void emplace(int index, const std::array<uint32_t, sizeof...(_Types)>& counts)
-        {
-            using type = request<_Type>;
-            requests[index] = std::make_any<type>(counts[index]);
-            if constexpr (sizeof...(_Rest)) emplace<_Rest...>(index + 1, counts);
-        }
-
-        const uint32_t _req_count;
-    };
-
-    // change int errors to err::code
-    // we should only allocate data if io is read, so 
-    //   maybe add a new tempalte type that is io::access
-    template<typename... _Types>
-    class promise
-    {
-        std::optional<request_array<_Types...>> _requests;
-        std::optional<int> _error;
-        const int _handle;
-
-    public:
         promise(int error) :
-            _error(error),
-            _handle(0)
+            _err(error),
+            _handler(std::nullopt)
         {   }
-
-        promise(
-                int handle, 
-                const std::array<uint32_t, sizeof...(_Types)>& counts, 
-                std::optional<uint32_t> req_count = std::nullopt
-            ) :
-            _requests(std::make_optional<request_array<_Types...>>(counts, req_count)),
-            _handle(handle)
-        {   }
-
-        template<uint32_t _Index>
-        const auto&
-        get() const 
-        {
-            assert(_requests.has_value());
-            return _requests.value().template get<_Index>();
-        }
-        
-        template<uint32_t _Index>
-        auto&
-        get() 
-        {
-            assert(_requests.has_value());
-            return _requests.value().template get<_Index>();
-        }
-
-        std::vector<std::string> 
-        wait_for_completion() const
-        {
-            assert(_requests.has_value());
-            const auto req_count = _requests.value().request_count();
-            std::vector<int> status(req_count); 
-            auto* requests = const_cast<int*>(_requests.value().ids.get());
-
-            const auto error = ncmpi_wait_all(_handle, req_count, requests, status.data());
-            if (error == NC_NOERR)
-            {
-                std::vector<std::string> ret;
-                ret.reserve(req_count);
-                for (const auto& i : status) ret.push_back(std::string(ncmpi_strerror(i)));
-                return ret;
-            }
-            return { };
-        }
-
-        int* requests() { return _requests.value().ids.get(); }
-        const int* requests() const { return _requests.value().ids.get(); }
-
-        uint32_t request_count() const { return sizeof...(_Types); }
 
         bool good() const
         {
-            return (!_error.has_value());
+            return _handler.has_value();
         }
 
-        auto error() const { return (good()?0:_error.value()); }
+        int error() const { return _err; }
+
+        std::array<std::string, RequestCount> wait() const
+        {
+            assert(good());
+
+            std::array<std::string, RequestCount> statuses;
+            std::array<int, RequestCount>         statuses_int;
+
+            auto* reqs = const_cast<int*>(&_handler.value().requests[0]);
+            const auto err = ncmpi_wait(_handle, RequestCount, reqs, statuses_int.data());
+            assert(err == NC_NOERR);
+
+            impl::static_for<RequestCount>([&](auto n) {
+                constexpr std::size_t i = n;
+                statuses[i] = std::string(ncmpi_strerror(statuses_int[i]));
+            });
+
+            return statuses;
+        }
+
+        template<std::size_t _Index>
+        std::vector<integral_type<_Index>>
+        get_data() const
+        {
+            assert(good());
+            const auto& data_ref = _handler.value().data[_Index];
+            std::vector<integral_type<_Index>> data(data_ref.first);
+            std::memcpy(data.data(), data_ref.second.get(), sizeof(integral_type<_Index>) * data.size());
+            return data;
+        }
+
+        template<std::size_t _Index>
+        integral_type<_Index>*
+        data()
+        {
+            assert(good());
+            return static_cast<integral_type<_Index>*>(
+                _handler.value().data[_Index].second.get()
+            );
+        }
+
+        int* requests() { return &_handler.value().requests[0]; }
+
+    private:
+        int _handle, _err;
+        std::optional<request_handler> _handler;
     };
-} 
+}

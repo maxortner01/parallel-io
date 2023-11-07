@@ -114,7 +114,14 @@ namespace pio::netcdf
         get_variable_value_info(const std::string& name) const;
         
         template<typename _Type, READ_TEMP>
-        io::result<GetData<_Type>>
+        io::result<std::vector<typename _Type::integral_type>>
+        read_variable_sync(
+            const std::string& name,
+            const std::vector<MPI_Offset>& start,
+            const std::vector<MPI_Offset>& count) const;
+
+        template<typename _Type, READ_TEMP>
+        const io::promise<io::access::ro, _Type>
         get_variable_values(
             const std::string& name, 
             const std::vector<MPI_Offset>& start,
@@ -125,56 +132,6 @@ namespace pio::netcdf
 
         READ io::result<dimension>
         get_dimension(const std::string& name) const;
-
-        // Each variable is different type and has unique memory region
-        /*
-        template<typename... _Types, READ_TEMP>
-        const io::promise<_Types...>
-        get_variable_values(const std::array<std::string, sizeof...(_Types)>& names)
-        {
-            constexpr auto TYPE_COUNT = sizeof...(_Types);
-            static_assert(TYPE_COUNT);
-
-            // Set up the array of counts
-            std::array<uint32_t, TYPE_COUNT> sizes;
-
-            std::vector<io::result<value_info>> infos;
-            infos.reserve(TYPE_COUNT);
-            for (uint32_t i = 0; i < TYPE_COUNT; i++)
-            {
-                auto info = get_variable_value_info(names[i]);
-                assert(info.good());
-
-                sizes[i] = info.value().size;
-                infos.push_back(info);
-            }
-
-            // Allocate the data to be retreived
-            io::promise<_Types...> promise(handle, sizes);
-
-            // "Iterate" through and make a request for each type supplied
-            impl::static_for<TYPE_COUNT>([&](auto n) {
-                constexpr std::size_t I = n;
-
-                using _Type = impl::NthType<I, _Types...>;
-                assert(infos[I].value().type == _Type::nc);
-
-                // once we fill out start and count this should be it... 
-                // we need to check if .good is true, if it's not 
-                // maybe promise.template get<I>().make_error(info.error()); where make_error is a non-const request method
-
-                const auto err = _Type::func(
-                    handle, 
-                    infos[I].value().index,
-                    infos[I].value().start.data(),
-                    infos[I].value().count.data(),
-                    promise.template get<I>().value(),
-                    &promise.requests()[I]
-                );
-            });
-
-            return promise;
-        }*/
 
         /* WRITE / READ-WRITE */
         template<typename _Type, WRITE_TEMP>

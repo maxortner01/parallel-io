@@ -14,10 +14,21 @@ namespace pio::io
 {
     enum class access
     {
-        ro = 0x01,
-        wo = 0x10,
-        rw = 0x11
+        ro = 0b01,
+        wo = 0b10,
+        rw = 0b11
     };
+
+    // Does acc have write access?
+    constexpr bool write_access(access acc)
+    {
+        return (int)acc & (int)access::wo;
+    }
+
+    constexpr access reduce_access(access acc)
+    {
+        return (write_access(acc) ? io::access::wo : io::access::ro);
+    }
 
     /**
      * @brief An isomorphism of primitive data-types to MPI/NC data types.
