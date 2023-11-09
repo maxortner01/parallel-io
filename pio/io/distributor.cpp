@@ -167,6 +167,6 @@ namespace pio::io
             volume_index++;
         }
 
-        return { volumes };
+        return { std::move(volumes) };
     }   
 }

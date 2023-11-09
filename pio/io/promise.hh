@@ -49,7 +49,7 @@ namespace pio::io
 
     // RO needs to allocate memory to store values *and* keep track of requests
     // WO needs only to keep track of requests
-    template<io::access _Access, typename... _Types>
+    template<io::access _Access, typename E, typename... _Types>
     struct promise
     {
         inline static constexpr std::size_t RequestCount = sizeof...(_Types);
@@ -59,7 +59,7 @@ namespace pio::io
 
         promise(int handle, const std::array<std::size_t, RequestCount>& counts) :
             _handle(handle),
-            _err(0)
+            _error(std::nullopt)
         {
             _handler.emplace();
 
@@ -86,8 +86,8 @@ namespace pio::io
             }
         }
 
-        promise(int error) :
-            _err(error),
+        promise(const E& error) :
+            _error(error),
             _handler(std::nullopt)
         {   }
 
@@ -96,7 +96,9 @@ namespace pio::io
             return _handler.has_value();
         }
 
-        int error() const { return _err; }
+        operator bool() const { return good(); }
+
+        const E& error() const { assert(_error.has_value()); return _error.value(); }
 
         std::array<std::string, RequestCount> wait() const
         {
@@ -151,7 +153,8 @@ namespace pio::io
         int* requests() { return _handler.value().requests.get(); }
 
     private:
-        int _handle, _err;
+        int _handle;
+        std::optional<E> _error;
         std::optional<impl::request_handler<_Access, RequestCount>> _handler;
     };
 }

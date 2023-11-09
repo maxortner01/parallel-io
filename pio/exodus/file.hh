@@ -161,7 +161,7 @@ namespace pio::exodus
             if (ret < 0) return { ret };
 
             i.title = std::string(title);
-            return { i };
+            return { std::move(i) };
         }
 
         auto
@@ -182,7 +182,7 @@ namespace pio::exodus
             const auto ret = ex_get_all_times(this->handle, &time_values[0]);
             if (ret < 0) return { ret };
             
-            return { time_values };
+            return { std::move(time_values) };
         }
 
         io::result<std::vector<std::string>>
@@ -199,7 +199,7 @@ namespace pio::exodus
             if (error < 0) return { error };
 
             std::vector<std::string> variable_names(num_vars);
-            if (!num_vars) return { variable_names };
+            if (!num_vars) return { std::move(variable_names) };
 
             for (auto& v : variable_names) v.resize(MAX_STR_LENGTH + 1);
 
@@ -207,7 +207,7 @@ namespace pio::exodus
 
             if (error < 0) return { error };
 
-            return { variable_names };
+            return { std::move(variable_names) };
         }
 
         io::result<std::vector<Block>>
@@ -240,7 +240,7 @@ namespace pio::exodus
                 blocks[i].id = ids[i];
                 blocks[i].type = std::string(type);
             }
-            return { blocks };
+            return { std::move(blocks) };
         };
 
         io::result<std::vector<_Word>>
@@ -258,7 +258,7 @@ namespace pio::exodus
             const auto err = ex_get_var(this->handle, time, EX_ELEM_BLOCK, index, block.id, block.elements, res.data());
             if (err < 0) return { err };
 
-            return { res };
+            return { std::move(res) };
         }
 
         // Make block struct that contains elem block parameters meta-data
@@ -297,7 +297,7 @@ namespace pio::exodus
                     if (error < 0) return { error };
                 }
 
-                return { ret };
+                return { std::move(ret) };
             }
 
             return { res.error() };

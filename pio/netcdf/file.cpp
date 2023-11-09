@@ -57,7 +57,7 @@ namespace pio::netcdf
 
     template<io::access _Access>
     template<typename>
-    io::result<std::vector<std::string>> 
+    result<std::vector<std::string>> 
     file<_Access>::variable_names() const
     {
         const auto inq = inquire();
@@ -71,13 +71,13 @@ namespace pio::netcdf
             ncmpi_inq_varname(handle, i, &name[0]);
             ret[i] = name;
         }
-        return { ret };
+        return { std::move(ret) };
     }
-    FWD_DEC_READ(io::result<std::vector<std::string>>, variable_names);
+    FWD_DEC_READ(result<std::vector<std::string>>, variable_names);
 
     template<io::access _Access>
     template<typename>
-    io::result<variable> 
+    result<variable> 
     file<_Access>::get_variable_info(const std::string& name) const
     {
         const auto inq = inquire();
@@ -85,13 +85,13 @@ namespace pio::netcdf
 
         int index = -1;
         auto err = ncmpi_inq_varid(handle, name.c_str(), &index);
-        if (err != NC_NOERR || index < 0) return { err };
+        if (err != NC_NOERR || index < 0) return { netcdf_error(err) };
 
         int dimensions = 0;
         variable var{0};
         var.index = index;
         err = ncmpi_inq_varndims(handle, index, &dimensions);
-        if (err != NC_NOERR) return { err };
+        if (err != NC_NOERR) return { netcdf_error(err) };
 
         std::vector<int> dim_ids(dimensions);
         var.dimensions.resize(dimensions);
@@ -111,13 +111,13 @@ namespace pio::netcdf
         for (uint32_t i = 0; i < dimensions; i++)
             var.dimensions[i] = get_dimension(dim_ids[i]).value();
 
-        return { var };
+        return { std::move(var) };
     }
-    FWD_DEC_READ(io::result<variable>, get_variable_info, const std::string&);
+    FWD_DEC_READ(result<variable>, get_variable_info, const std::string&);
 
     template<io::access _Access>
     template<typename>
-    io::result<value_info>
+    result<value_info>
     file<_Access>::get_variable_value_info(const std::string& name) const
     {
         // Get MPI info
@@ -145,14 +145,14 @@ namespace pio::netcdf
         for (const auto& dim : info.value().dimensions)
             ret.size *= dim.length;
 
-        return { ret };
+        return { std::move(ret) };
     }
-    FWD_DEC_READ(io::result<value_info>, get_variable_value_info, const std::string&);
+    FWD_DEC_READ(result<value_info>, get_variable_value_info, const std::string&);
 
     using map_type = std::unordered_map<std::string, MPI_Offset>;
     template<io::access _Access>
     template<typename>
-    io::result<map_type>
+    result<map_type>
     file<_Access>::get_dimension_lengths() const
     {
         const auto inq = inquire();
@@ -168,28 +168,28 @@ namespace pio::netcdf
 
             map.insert(std::pair(std::string(name), offset));
         }
-        return { map };
+        return { std::move(map) };
     }
-    FWD_DEC_READ(io::result<map_type>, get_dimension_lengths);
+    FWD_DEC_READ(result<map_type>, get_dimension_lengths);
 
     template<io::access _Access>
     template<typename>
-    io::result<info>
+    result<info>
     file<_Access>::inquire() const
     {
         info i;
         int unlimited;
         int error = ncmpi_inq(handle, &i.dimensions, &i.variables, &i.attributes, &unlimited);
 
-        if (error != NC_NOERR) return { error };
+        if (error != NC_NOERR) return { netcdf_error(error) };
         
-        return { i };
+        return { std::move(i) };
     }
-    FWD_DEC_READ(io::result<info>, inquire);
+    FWD_DEC_READ(result<info>, inquire);
     
     template<io::access _Access>
     template<typename _Type, typename>
-    io::result<std::vector<typename _Type::integral_type>>
+    result<std::vector<typename _Type::integral_type>>
     file<_Access>::read_variable_sync(
         const std::string& name,
         const std::vector<MPI_Offset>& start,
@@ -200,29 +200,29 @@ namespace pio::netcdf
         const auto statuses = promise.wait();
         return { promise.template get_data<0>() };
     }
-    FWD_DEC_READ(io::result<std::vector<int>>, read_variable_sync<types::Int>, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_READ(io::result<std::vector<float>>, read_variable_sync<types::Float>, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_READ(io::result<std::vector<double>>, read_variable_sync<types::Double>, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    FWD_DEC_READ(io::result<std::vector<char>>, read_variable_sync<types::Char>, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_READ(result<std::vector<int>>, read_variable_sync<types::Int>, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_READ(result<std::vector<float>>, read_variable_sync<types::Float>, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_READ(result<std::vector<double>>, read_variable_sync<types::Double>, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    FWD_DEC_READ(result<std::vector<char>>, read_variable_sync<types::Char>, const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
 
     template<io::access _Access>
     template<typename _Type, typename>
-    const io::promise<io::access::ro, _Type>
+    const promise<io::access::ro, _Type>
     file<_Access>::get_variable_values(
         const std::string& name, 
         const std::vector<MPI_Offset>& start,
         const std::vector<MPI_Offset>& count) const
     {
         const auto info = get_variable_value_info(name);
-        if (!info.good()) return { info.error() };
-        if (info.value().type != _Type::nc) return { -1 };
+        if (!info) return { info.error() };
+        if (info.value().type != _Type::nc) return { error_code::TypeMismatch };
 
         const std::size_t size = std::accumulate(count.begin(), count.end(), 1, std::multiplies<size_t>());
 
-        io::promise<io::access::ro, _Type> promise(handle, { size });
+        promise<io::access::ro, _Type> promise(handle, { size });
         
         auto err = ncmpi_begin_indep_data(get_handle());
-        if (err != NC_NOERR) return { -2 };
+        if (err != NC_NOERR) return { netcdf_error(err) };
 
         err = _Type::func(
             handle,
@@ -232,24 +232,24 @@ namespace pio::netcdf
             promise.template data<0>(),
             promise.requests()
         );
-        if (err != NC_NOERR) return { err };
+        if (err != NC_NOERR) return { netcdf_error(err) };
 
         return promise;
     }
     // Need to utilize the macro here (how to deal with that comma...)
-    template const io::promise<io::access::ro, types::Double> file<io::access::ro>::get_variable_values<types::Double>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
-    template const io::promise<io::access::ro, types::Float> file<io::access::ro>::get_variable_values<types::Float>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
-    template const io::promise<io::access::ro, types::Int> file<io::access::ro>::get_variable_values<types::Int>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
-    template const io::promise<io::access::ro, types::Char> file<io::access::ro>::get_variable_values<types::Char>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
+    template const promise<io::access::ro, types::Double> file<io::access::ro>::get_variable_values<types::Double>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
+    template const promise<io::access::ro, types::Float> file<io::access::ro>::get_variable_values<types::Float>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
+    template const promise<io::access::ro, types::Int> file<io::access::ro>::get_variable_values<types::Int>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
+    template const promise<io::access::ro, types::Char> file<io::access::ro>::get_variable_values<types::Char>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
     
-    template const io::promise<io::access::ro, types::Double> file<io::access::rw>::get_variable_values<types::Double>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
-    template const io::promise<io::access::ro, types::Float> file<io::access::rw>::get_variable_values<types::Float>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
-    template const io::promise<io::access::ro, types::Int> file<io::access::rw>::get_variable_values<types::Int>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
-    template const io::promise<io::access::ro, types::Char> file<io::access::rw>::get_variable_values<types::Char>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
+    template const promise<io::access::ro, types::Double> file<io::access::rw>::get_variable_values<types::Double>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
+    template const promise<io::access::ro, types::Float> file<io::access::rw>::get_variable_values<types::Float>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
+    template const promise<io::access::ro, types::Int> file<io::access::rw>::get_variable_values<types::Int>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
+    template const promise<io::access::ro, types::Char> file<io::access::rw>::get_variable_values<types::Char>(const std::string&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&) const;
 
     template<io::access _Access>
     template<typename>
-    io::result<dimension>
+    result<dimension>
     file<_Access>::get_dimension(int id) const
     {
         dimension dim{0};
@@ -257,21 +257,21 @@ namespace pio::netcdf
 
         char _name[MAX_NAME_LENGTH];
         const auto err = ncmpi_inq_dim(handle, id, _name, &dim.length);
-        if (err != NC_NOERR) return { err };
+        if (err != NC_NOERR) return { netcdf_error(err) };
 
         dim.name = std::string(_name);
 
-        return { dim };
+        return { std::move(dim) };
     }
     
     template<io::access _Access>
     template<typename>
-    io::result<dimension>
+    result<dimension>
     file<_Access>::get_dimension(const std::string& name) const
     {
         int id = 0;
         const auto err = ncmpi_inq_dimid(handle, name.c_str(), &id);
-        if (err != NC_NOERR) return { err };
+        if (err != NC_NOERR) return { netcdf_error(err) };
 
         return get_dimension(id);
     }
@@ -282,7 +282,7 @@ namespace pio::netcdf
 
     template<io::access _Access>
     template<typename _Type, typename>
-    const io::promise<io::access::wo, _Type>
+    const promise<io::access::wo, _Type>
     file<_Access>::write_variable(
         const std::string& name,
         const typename _Type::integral_type* data,
@@ -290,31 +290,31 @@ namespace pio::netcdf
         const std::vector<MPI_Offset>& offset,
         const std::vector<MPI_Offset>& count)
     {
-        if (!data || !size) return { 0 };
-        if (offset.size() != count.size()) return { 1 };
+        if (!data || !size) return { error_code::NullData };
+        if (offset.size() != count.size()) return { error_code::DimensionSizeMismatch };
         
         // data_size is equivalent to volume of data
         const auto product = std::accumulate(count.begin(), count.end(), 1, std::multiplies<size_t>());
-        if (product != size) return { 2 };
+        if (product != size) return { error_code::SizeMismatch };
         
         variable var;
         if constexpr (_Access == io::access::rw)
         {
             const auto info = get_variable_info(name);
-            if (!info.good()) { return { info.error() }; };
+            if (!info) { return { info.error() }; };
             var = std::move(info.value());
         }
         else return { 5 };
 
-        if (_Type::nc != var.type) return { 3 };
-        if (var.dimensions.size() != offset.size()) return { 4 };
+        if (_Type::nc != var.type) return { error_code::TypeMismatch };
+        if (var.dimensions.size() != offset.size()) return { error_code::DimensionSizeMismatch };
 
         // need to find clever way to *not* require that counts array for this
         // type of promise
-        io::promise<io::access::wo, _Type> promise(get_handle(), { 0 });
+        promise<io::access::wo, _Type> promise(get_handle(), { 0 });
 
         auto err = ncmpi_begin_indep_data(get_handle());
-        if (err != NC_NOERR) return { 5 };
+        if (err != NC_NOERR) return { netcdf_error(err) };
 
         err = ncmpi_iput_vara(
             handle,
@@ -326,20 +326,20 @@ namespace pio::netcdf
             MPI_DATATYPE_NULL,
             promise.requests()
         );
-        if (err != NC_NOERR) return { err };
+        if (err != NC_NOERR) return { netcdf_error(err) };
 
         return promise;
     }
     // Need to utilize the macro here (how to deal with that comma...)
-    template const io::promise<io::access::wo, types::Double> file<io::access::wo>::write_variable<types::Double>(const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    template const io::promise<io::access::wo, types::Float> file<io::access::wo>::write_variable<types::Float>(const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    template const io::promise<io::access::wo, types::Int> file<io::access::wo>::write_variable<types::Int>(const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    template const io::promise<io::access::wo, types::Char> file<io::access::wo>::write_variable<types::Char>(const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const promise<io::access::wo, types::Double> file<io::access::wo>::write_variable<types::Double>(const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const promise<io::access::wo, types::Float> file<io::access::wo>::write_variable<types::Float>(const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const promise<io::access::wo, types::Int> file<io::access::wo>::write_variable<types::Int>(const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const promise<io::access::wo, types::Char> file<io::access::wo>::write_variable<types::Char>(const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
     
-    template const io::promise<io::access::wo, types::Double> file<io::access::rw>::write_variable<types::Double>(const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    template const io::promise<io::access::wo, types::Float> file<io::access::rw>::write_variable<types::Float>(const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    template const io::promise<io::access::wo, types::Int> file<io::access::rw>::write_variable<types::Int>(const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
-    template const io::promise<io::access::wo, types::Char> file<io::access::rw>::write_variable<types::Char>(const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const promise<io::access::wo, types::Double> file<io::access::rw>::write_variable<types::Double>(const std::string&, const double*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const promise<io::access::wo, types::Float> file<io::access::rw>::write_variable<types::Float>(const std::string&, const float*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const promise<io::access::wo, types::Int> file<io::access::rw>::write_variable<types::Int>(const std::string&, const int*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
+    template const promise<io::access::wo, types::Char> file<io::access::rw>::write_variable<types::Char>(const std::string&, const char*, const std::size_t&, const std::vector<MPI_Offset>&, const std::vector<MPI_Offset>&);
 
 #pragma endregion WRITE
 

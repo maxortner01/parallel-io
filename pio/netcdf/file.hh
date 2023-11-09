@@ -83,9 +83,72 @@ namespace pio::netcdf
         std::shared_ptr<int> requests;
     };
 
+    struct error_code
+    {
+        enum code
+        {
+            TypeMismatch,
+            SizeMismatch,
+            DimensionSizeMismatch,
+            NullData
+        };
+
+        error_code(code c) :
+            _netcdf_error(false),
+            _code(c)
+        {   }
+
+        error_code(int c) :
+            _netcdf_error(true),
+            _netcdf(c)
+        {   }
+
+        std::string
+        message() const
+        {
+            switch (_netcdf_error)
+            {
+            case true:  return "Netcdf error: " + std::string(ncmpi_strerror(_netcdf));
+            case false: return "PIO error: " + _to_string(_code);
+            }
+        }
+
+    private:
+        union
+        {
+            code _code;
+            int  _netcdf;
+        };
+        bool _netcdf_error;
+
+        static std::string _to_string(code c)
+        {
+            switch (c)
+            {
+            case TypeMismatch: return "Type Mismatch";
+            case SizeMismatch: return "Size Mismatch";
+            case DimensionSizeMismatch: return "Dimension Size Mismatch";
+            case NullData: return "Data Pointer is Null";
+            }
+            return "";
+        }
+    };
+    
+    static error_code netcdf_error(int num)
+    {
+        return error_code(num);
+    }
+    
+    template<typename T>
+    using result = io::result<T, error_code>;
+    
+    template<io::access _Access, typename... _Types>
+    using promise = io::promise<_Access, error_code, _Types...>;
+
     template<io::access _Access>
     struct file
     {
+
         file(const std::string& filename);
         ~file();
 
@@ -98,44 +161,44 @@ namespace pio::netcdf
         operator bool() const { return good(); }
         
         /* READ / READ-WRITE */
-        READ io::result<std::unordered_map<std::string, MPI_Offset>>
+        READ result<std::unordered_map<std::string, MPI_Offset>>
         get_dimension_lengths() const;
 
-        READ io::result<info> 
+        READ result<info> 
         inquire() const;
 
-        READ io::result<std::vector<std::string>>
+        READ result<std::vector<std::string>>
         variable_names() const;
 
-        READ io::result<variable>
+        READ result<variable>
         get_variable_info(const std::string& name) const;
 
-        READ io::result<value_info>
+        READ result<value_info>
         get_variable_value_info(const std::string& name) const;
         
         template<typename _Type, READ_TEMP>
-        io::result<std::vector<typename _Type::integral_type>>
+        result<std::vector<typename _Type::integral_type>>
         read_variable_sync(
             const std::string& name,
             const std::vector<MPI_Offset>& start,
             const std::vector<MPI_Offset>& count) const;
 
         template<typename _Type, READ_TEMP>
-        const io::promise<io::access::ro, _Type>
+        const promise<io::access::ro, _Type>
         get_variable_values(
             const std::string& name, 
             const std::vector<MPI_Offset>& start,
             const std::vector<MPI_Offset>& count) const;
 
-        READ io::result<dimension>
+        READ result<dimension>
         get_dimension(int id) const;
 
-        READ io::result<dimension>
+        READ result<dimension>
         get_dimension(const std::string& name) const;
 
         /* WRITE / READ-WRITE */
         template<typename _Type, WRITE_TEMP>
-        const io::promise<io::access::wo, _Type>
+        const promise<io::access::wo, _Type>
         write_variable(
             const std::string& name,
             const typename _Type::integral_type* data,
@@ -159,11 +222,11 @@ namespace pio::netcdf
         )
     {
         const auto data_r = in.template read_variable_sync<_Type>(name, offsets, counts);
-        if (!data_r.good()) return false;
-        const auto data = data_r.value();
+        if (!data_r) { std::cout << data_r.error().message() << "\n"; return false; }
+        const auto& data = data_r.value();
         
         const auto res = out.template write_variable<_Type>(name, data.data(), data.size(), offsets, counts);
-        if (!res.good()) return false;
+        if (!res) { std::cout << res.error().message() << "\n"; return false; }
         res.wait();
 
         return true;

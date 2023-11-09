@@ -25,10 +25,10 @@ duplicate_file(
     // from the input file
     exodus::file<std::size_t, io::access::wo> out(out_name);
     
-    if (out.good())
+    if (out)
     {
         const auto info = in.get_info();
-        assert(info.good());
+        assert(info);
 
         // Copy over paramters
         mpi_assert(out.set_init_params(info.value()));
@@ -43,6 +43,7 @@ duplicate_file(
         for (const auto& block : blocks.value())
             assert(out.create_block(block));
     }
+    else return false;
 
     return true;
 }
