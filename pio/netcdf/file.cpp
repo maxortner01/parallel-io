@@ -11,6 +11,38 @@
 
 namespace pio::netcdf
 {
+    error_code::error_code(code c) :
+        _netcdf_error(false),
+        _code(c)
+    {   }
+    
+    error_code::error_code(int c) :
+        _netcdf_error(true),
+        _netcdf(c)
+    {   }
+
+    std::string
+    error_code::message() const
+    {
+        switch (_netcdf_error)
+        {
+        case true:  return "Netcdf error: " + std::string(ncmpi_strerror(_netcdf));
+        case false: return "PIO error: " + _to_string(_code);
+        }
+    }
+    
+    std::string error_code::_to_string(code c)
+    {
+        switch (c)
+        {
+        case TypeMismatch: return "Type Mismatch";
+        case SizeMismatch: return "Size Mismatch";
+        case DimensionSizeMismatch: return "Dimension Size Mismatch";
+        case NullData: return "Data Pointer is Null";
+        }
+        return "";
+    }
+
     template<io::access _Access>
     file<_Access>::file(const std::string& filename)
     {

@@ -50,19 +50,24 @@ duplicate_file(
 
 int main(int argc, char** argv)
 {
+    if (argc != 3) return 1;
+
     MPI_Init(&argc, &argv);
+
+    const auto in_file_name = std::string(argv[1]);
+    const auto out_file_name = std::string(argv[2]);
 
     io::distributor dist(MPI_COMM_WORLD);
 
-    if (!dist.rank()) assert(duplicate_file("../box-hex.exo", "../test.exo"));
+    if (!dist.rank()) assert(duplicate_file(in_file_name, out_file_name));
     MPI_Barrier(MPI_COMM_WORLD);
 
     {
-        netcdf::file<io::access::ro> in("../box-hex.exo");
+        netcdf::file<io::access::ro> in(in_file_name);
         assert(in);
         
         // Create the output file
-        netcdf::file<io::access::rw> f("../test.exo");
+        netcdf::file<io::access::rw> f(out_file_name);
         assert(f);
 
         // Grab the names of the variables
@@ -70,7 +75,7 @@ int main(int argc, char** argv)
         assert(vars.good());
         const auto& in_var_names = vars.value();
 
-        netcdf::file<io::access::rw> out("../test.exo");
+        netcdf::file<io::access::rw> out(out_file_name);
         assert(out);
 
         const auto vars_out = out.variable_names();

@@ -50,11 +50,13 @@ namespace pio::netcdf
 
     } // namespace impl
 
+    /// The basic information describing this exodus file.
     struct info
     {
         int dimensions, variables, attributes;
     };
 
+    /// A singular degree of freedom 
     struct dimension
     {
         int id;
@@ -62,12 +64,14 @@ namespace pio::netcdf
         std::string name;
     };
 
+    /// A value that has dimensions and is data stored in the file
     struct variable
     {
         int index, attributes, type;
         std::vector<dimension> dimensions;
     };
 
+    /// Information about the type of data stored in a variable entry
     struct value_info
     {
         uint32_t index, size;
@@ -75,6 +79,7 @@ namespace pio::netcdf
         value_info() : index(0), size(0) { }
     };
 
+    // unused
     template<typename _Type>
     struct GetData
     {
@@ -83,6 +88,7 @@ namespace pio::netcdf
         std::shared_ptr<int> requests;
     };
 
+    /// Basic storage for errors, contains both PIO errors and pnetcdf errors
     struct error_code
     {
         enum code
@@ -93,25 +99,20 @@ namespace pio::netcdf
             NullData
         };
 
-        error_code(code c) :
-            _netcdf_error(false),
-            _code(c)
-        {   }
+        /**
+         * @brief Initialize with a PIO error
+         * @param c PIO error
+         */
+        error_code(code c);
 
-        error_code(int c) :
-            _netcdf_error(true),
-            _netcdf(c)
-        {   }
+        /**
+         * @brief Initialize with pnetcdf error
+         * @param c 
+         */
+        error_code(int c);
 
-        std::string
-        message() const
-        {
-            switch (_netcdf_error)
-            {
-            case true:  return "Netcdf error: " + std::string(ncmpi_strerror(_netcdf));
-            case false: return "PIO error: " + _to_string(_code);
-            }
-        }
+        /// Convert the error to string
+        std::string message() const;
 
     private:
         union
@@ -121,17 +122,7 @@ namespace pio::netcdf
         };
         bool _netcdf_error;
 
-        static std::string _to_string(code c)
-        {
-            switch (c)
-            {
-            case TypeMismatch: return "Type Mismatch";
-            case SizeMismatch: return "Size Mismatch";
-            case DimensionSizeMismatch: return "Dimension Size Mismatch";
-            case NullData: return "Data Pointer is Null";
-            }
-            return "";
-        }
+        static std::string _to_string(code c);
     };
     
     static error_code netcdf_error(int num)
@@ -161,21 +152,75 @@ namespace pio::netcdf
         operator bool() const { return good(); }
         
         /* READ / READ-WRITE */
+
+        /**
+         * @brief Get the lengths of each dimension in the file
+         * 
+         * This method is for read only or read-write files.
+         * 
+         * @return result<std::unordered_map<std::string, MPI_Offset>> Error or a map of dimension names to their lengths
+         */
         READ result<std::unordered_map<std::string, MPI_Offset>>
         get_dimension_lengths() const;
 
+        /**
+         * @brief Get basic info about the file
+         * 
+         * This method is for read only or read-write files.
+         * 
+         * @return result<info> Error or a collection of basic info about the file
+         */
         READ result<info> 
         inquire() const;
 
+        /**
+         * @brief Get the names of all of the variables
+         * 
+         * This method is for read only or read-write files.
+         * 
+         * @return result<std::vector<std::string>> Error or a list of variable names
+         */
         READ result<std::vector<std::string>>
         variable_names() const;
 
+        /**
+         * @brief Get the features of a variable
+         * 
+         * This method is for read only or read-write files.
+         * 
+         * @param name Name of the variable
+         * @return result<variable> Error or the information about a variable 
+         */
         READ result<variable>
         get_variable_info(const std::string& name) const;
 
+        /**
+         * @brief Get the information about the data a variable describes
+         * 
+         * This method is for read only or read-write files
+         * 
+         * @param name Name of the variable
+         * @return result<value_info> Error or the information about the variable values
+         */
         READ result<value_info>
         get_variable_value_info(const std::string& name) const;
         
+        // TODO: Possibly make the return type a 2d ragged array which is the 
+        // data for each dimension
+        /**
+         * @brief Blocking method that reads a requested data region
+         * 
+         * This method is for read only or read-write files
+         * 
+         * If the requested data type is different than the data contained in the file
+         * the result will contain a @ref error_code::TypeMismatch error.
+         * 
+         * @tparam _Type The data-type of the variable from @ref pio::types
+         * @param name  The name of the variable
+         * @param start The starting indices for each dimension (must be same length as dimensions of this variable)
+         * @param count The amount of objects after the starting index for each dimension (must be same length as start)
+         * @return result<std::vector<typename _Type::integral_type>> Error or the requested data region
+         */
         template<typename _Type, READ_TEMP>
         result<std::vector<typename _Type::integral_type>>
         read_variable_sync(
@@ -183,6 +228,20 @@ namespace pio::netcdf
             const std::vector<MPI_Offset>& start,
             const std::vector<MPI_Offset>& count) const;
 
+        /**
+         * @brief Asynchronous request to read a requested data region
+         * 
+         * This method is for read only or read-write files
+         * 
+         * If the requested data type is different than the data contained in the file
+         * the result will contain a @ref error_code::TypeMismatch error.
+         * 
+         * @tparam _Type The data-type of the variable from @ref pio::types
+         * @param name  The name of the variable
+         * @param start The starting indices for each dimension (must be same length as dimensions of this variable)
+         * @param count The amount of objects after the starting index for each dimension (must be same length as start)
+         * @return const promise<io::access::ro, _Type> Error or a promise containing the requested data
+         */
         template<typename _Type, READ_TEMP>
         const promise<io::access::ro, _Type>
         get_variable_values(
@@ -190,13 +249,44 @@ namespace pio::netcdf
             const std::vector<MPI_Offset>& start,
             const std::vector<MPI_Offset>& count) const;
 
+        /**
+         * @brief Get the dimension information of an id
+         * 
+         * This method is for read only or read-write files
+         * 
+         * @param id The id of the dimension
+         * @return result<dimension> Error or the dimension information
+         */
         READ result<dimension>
         get_dimension(int id) const;
 
+        
+        /**
+         * @brief Get the dimension information from a name
+         * 
+         * This method is for read only or read-write files
+         * 
+         * @param name The name of the dimension
+         * @return result<dimension> Error or the dimension information
+         */
         READ result<dimension>
         get_dimension(const std::string& name) const;
 
         /* WRITE / READ-WRITE */
+
+        /**
+         * @brief Asynchronous request to write given data to a region in the file
+         * 
+         * This method is for write only or read-write files
+         * 
+         * @tparam _Type The data type of the variable from @ref pio::types
+         * @param name   The name of the variable
+         * @param data   Pointer to the data to write into the file
+         * @param size   The length of the data
+         * @param offset The starting indices for each dimension (must be same length as dimensions of this variable)
+         * @param count  The amount of objects after the starting index for each dimension (must be same length as start)
+         * @return const promise<io::access::wo, _Type> Error or a promise to complete the write request
+         */
         template<typename _Type, WRITE_TEMP>
         const promise<io::access::wo, _Type>
         write_variable(
@@ -212,8 +302,26 @@ namespace pio::netcdf
         bool _good;
     };
 
+    // TODO: Make this return a result so we can communicate more informative errors
+    /**
+     * @brief Copy the requested data region from one file to another
+     * 
+     * The variable should exist in both the input and the output file and their dimensions should
+     * be the same.
+     * 
+     * @tparam _Type  The type of the data from @ref io::types
+     * @tparam _Read  Access of in file (should be @ref io::access::ro or @ref io::access::rw)
+     * @tparam _Write Access of out file (should be @ref io::access::wo or @ref io::access::rw)
+     * @param name    The name of the variable to copy
+     * @param offsets The starting indices for each dimension (must be same length as dimensions of this variable)
+     * @param counts  The amount of objects after the starting index for each dimension (must be same length as start)
+     * @param in  The input file
+     * @param out The output file
+     * @return true  The copy was successful
+     * @return false The copy was not successful
+     */
     template<typename _Type, io::access _Read, io::access _Write>
-    bool copy_variable(
+    static bool copy_variable(
         const std::string& name,
         const std::vector<MPI_Offset>& offsets,
         const std::vector<MPI_Offset>& counts,
