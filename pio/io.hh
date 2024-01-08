@@ -14,3 +14,20 @@
 #include "./io/result.hh"
 #include "./io/promise.hh"
 #include "./io/distributor.hh"
+#include "./io/span.hh"
+
+#ifndef READ_TEMP
+#define READ_TEMP typename = std::enable_if<_Access == io::access::ro || _Access == io::access::rw, bool>
+#endif 
+
+#ifndef READ
+#define READ template<READ_TEMP>
+#endif
+
+#ifndef WRITE_TEMP
+#define WRITE_TEMP typename = std::enable_if<_Access == io::access::wo || _Access == io::access::rw, bool>
+#endif
+
+#ifndef WRITE
+#define WRITE template<WRITE_TEMP>
+#endif

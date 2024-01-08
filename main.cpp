@@ -50,7 +50,7 @@ duplicate_file(
 
 int main(int argc, char** argv)
 {
-    if (argc != 3) return 1;
+    if (argc != 3) { std::cout << "Usage: ./cpfile [in-file-name] [out-file-name]\n"; return 1; }
 
     MPI_Init(&argc, &argv);
 

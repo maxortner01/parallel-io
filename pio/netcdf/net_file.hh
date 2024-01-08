@@ -21,12 +21,6 @@
 #include <vector>
 #include <string>
 
-#define READ_TEMP typename = std::enable_if<_Access == io::access::ro || _Access == io::access::rw, bool>
-#define READ template<READ_TEMP>
-
-#define WRITE_TEMP typename = std::enable_if<_Access == io::access::wo || _Access == io::access::rw, bool>
-#define WRITE template<WRITE_TEMP>
-
 namespace pio::netcdf
 {
     namespace impl

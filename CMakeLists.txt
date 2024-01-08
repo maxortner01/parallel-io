@@ -11,7 +11,8 @@ find_library(MPI mpi)
 find_path(MPICH_INCLUDE_DIR mpi.h)
 
 set(PIO_SOURCE
-    ${CMAKE_SOURCE_DIR}/pio/netcdf/file.cpp
+    ${CMAKE_SOURCE_DIR}/pio/exodus/ex_file.cpp
+    ${CMAKE_SOURCE_DIR}/pio/netcdf/net_file.cpp
     ${CMAKE_SOURCE_DIR}/pio/io/type.cpp
     ${CMAKE_SOURCE_DIR}/pio/io/distributor.cpp)
 

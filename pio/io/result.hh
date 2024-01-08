@@ -6,56 +6,56 @@
 
 namespace pio::io
 {
-    template<typename T, typename E = int>
-    class result
+    namespace detail
     {
-        std::optional<T> _value;
+
+    template<typename T, typename E = int>
+    struct base_result
+    {
+        base_result() : _error(std::nullopt)
+        {   }
+        
+        base_result(const E& e) : _error(e)
+        {   }
+
+        base_result(const base_result&) = delete;
+
+        virtual ~base_result() = default;
+
+        bool     good()  const { return !_error.has_value(); }
+        const E& error() const { return _error.value(); }
+
+        operator bool() const { return good(); }
+
+    private:
         std::optional<E> _error;
+    };
 
-    public:
-        result(const E& e);
-        result(T&& val);
+    }
 
-        result(const result&) = delete;
+    template<typename T, typename E = int>
+    struct result : detail::base_result<T, E>
+    {
+        using detail::base_result<T, E>::base_result;
+
+        result(T&& val) : _value(val)
+        {   }
 
         ~result() = default;
 
-        bool     good()  const;
-        T&       value();
-        const E& error() const;
-        const T& value() const;
+        T&       value()       { return _value.value(); }
+        const T& value() const { return _value.value(); }
 
-        operator bool() const { return good(); }
+    private:
+        std::optional<T> _value;
     };
-}
 
-namespace pio::io
-{
-    template<typename T, typename E>
-    result<T, E>::result(const E& e) : 
-        _value(std::nullopt), 
-        _error(e)
-    {   }
+    template<typename E>
+    struct result<void, E> : detail::base_result<void, E>
+    {   
+        using detail::base_result<void, E>::base_result;
 
-    template<typename T, typename E>
-    result<T, E>::result(T&& val) : 
-        _value(val), 
-        _error(std::nullopt)
-    {   }
-
-    template<typename T, typename E>
-    bool result<T, E>::good() const 
-    { return _value.has_value(); }
-
-    template<typename T, typename E>
-    const E& result<T, E>::error() const
-    { assert(!good()); return _error.value(); }
-
-    template<typename T, typename E>
-    T& result<T, E>::value()
-    { assert(good()); return _value.value(); }
-    
-    template<typename T, typename E>
-    const T& result<T, E>::value() const
-    { assert(good()); return _value.value(); }
+        result()  = default;
+        ~result() = default;
+    };
 }
