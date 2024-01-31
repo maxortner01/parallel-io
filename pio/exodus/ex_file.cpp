@@ -9,24 +9,30 @@
 #define FWD_DEC_READ(word, ret, name, ...) FWD_DEC_READ_O(word, ret, name, ro, __VA_ARGS__); FWD_DEC_READ_O(word, ret, name, rw, __VA_ARGS__)
 #define FWD_DEC_ALL(word, ret, name, ...) FWD_DEC_WRITE_O(word, ret, name, ro, __VA_ARGS__); FWD_DEC_WRITE_O(word, ret, name, rw, __VA_ARGS__); FWD_DEC_WRITE_O(word, ret, name, wo, __VA_ARGS__)
 
+#define EXO_CHECK(val) { auto err = val; if (err < 0) return { exodus_error(err, #val) }; }
+
 namespace pio::exodus
 {
 
 error_code::error_code(code c) :
-    _code(c)
+    _code(c),
+    _exodus_error(false)
 {   }
 
-error_code::error_code(int c) :
-    _exodus(c)
-{   }
+error_code::error_code(int c, const std::string& func_name) :
+    _exodus(c),
+    _exodus_error(true)
+{   
+    if (func_name.size()) _func_name = func_name;
+}
 
 std::string
 error_code::message() const
 {
     switch(_exodus_error)
     {
-    case true:  return "Exodus error: " + std::string(ex_strerror(_exodus));
-    case false: return "PIO error: " + _to_string(_code);
+    case true:  return "Exodus error (" + (_func_name ? (*_func_name + " returned ") : "") + std::to_string(_exodus) + "): " + std::string(ex_strerror(_exodus));
+    case false: return "PIO error:" + _to_string(_code);
     }
 }
 
@@ -42,24 +48,45 @@ error_code::_to_string(code c)
     case code::TimeStepNotPresent:          return "requested time step does not exist";
     case code::TimeStepIndexOutOfBounds:    return "time step indices start at 1";
     case code::VariableIndexOutOfBounds:    return "variable indices start at 1";
+    case code::WrongConnectivityDimensions: return "connectivity should be num_elems_this_blk x num_nodes_per_elem";
+    case code::WrongNodeSize:               return "entity counts should be num_elems_this_blk x num_nodes_per_elem";
+    case code::WrongBlockType:              return "block type needs to be \"nsided\"";
+    case code::VariableCountNotSet:         return "variable count not set for this scope";
+    case code::VariableCountAlreadySet:     return "variable count for this scope has already been assigned";
+    case code::ScopeNotSupported:           return "given scope type not supported";
     default: return "Error error";
     }
 }
 
 template<typename _Word, io::access _Access>
-file<_Word, _Access>::file(const std::string& filename)
+file<_Word, _Access>::file(const std::string& filename, bool overwrite) :
+    _handle(-1)
 {
     int comp_ws = sizeof(_Word);
     int io_ws = sizeof(_Word);
     float version;
-    _handle = ex_open(filename.c_str(), (_Access == io::access::ro?EX_READ:EX_WRITE) | EX_LARGE_MODEL, &comp_ws, &io_ws, &version); 
 
-    if constexpr (_Access == io::access::wo)
-        if (_handle < 0) _handle = ex_create(filename.c_str(), EX_WRITE, &comp_ws, &io_ws);
+    int flags = 0;
+    //if constexpr (Is64)
+        //flags |= EX_LARGE_MODEL;
+
+    if constexpr (_Access == io::access::ro)
+        _handle = ex_open(filename.c_str(), flags | EX_READ, &comp_ws, &io_ws, &version); 
+    else
+    {
+        _handle = ex_create(filename.c_str(), (overwrite ? EX_CLOBBER : EX_NOCLOBBER), &comp_ws, &io_ws);
+        if (_handle < 0)
+            _handle = ex_open(filename.c_str(), flags | EX_WRITE, &comp_ws, &io_ws, &version);
+    }
 
     _good = (_handle < 0?false:true);
+    if (!_good) _err = _handle;
+    //else
+        //if constexpr (Is64)
+            //ex_set_int64_status(_handle, EX_ALL_INT64_DB);
+
 }
-FWD_DEC_ALL(unsigned long, , file, const std::string&);
+FWD_DEC_ALL(unsigned long, , file, const std::string&, bool);
 
 template<typename _Word, io::access _Access>
 file<_Word, _Access>::file(file&& f) :
@@ -79,10 +106,10 @@ FWD_DEC_ALL(unsigned long, , ~file);
 template<typename _Word, io::access _Access>
 void file<_Word, _Access>::close()
 {
-    if (_handle) // need to verify _handle = 0 is not a valid id
+    if (_handle >= 1)
     {
         ex_close(_handle);
-        _handle = 0;
+        _handle = -1;
     }
 }
 FWD_DEC_ALL(unsigned long, void, close);
@@ -92,11 +119,11 @@ FWD_DEC_ALL(unsigned long, void, close);
 template<typename _Word, io::access _Access>
 template<typename>
 result<void> 
-file<_Word, _Access>::set_init_params(const info& info)
+file<_Word, _Access>::set_init_params(const info<_Word>& info)
 {
     if (!good()) return { error_code::FileNotGood };
 
-    const auto err = ex_put_init(
+    EXO_CHECK(ex_put_init(
         _handle, 
         info.title.c_str(), 
         info.num_dim, 
@@ -105,61 +132,203 @@ file<_Word, _Access>::set_init_params(const info& info)
         info.num_elem_blk,
         info.num_node_sets,
         info.num_side_sets
-        );
-
-    if (err < 0) return { exodus_error(err) };
+    ));
     return { };
 }
-FWD_DEC_WRITE(unsigned long, result<void>, set_init_params, const info&);
+FWD_DEC_WRITE(unsigned long, result<void>, set_init_params, const info<unsigned long>&);
 
 template<typename _Word, io::access _Access>
 template<typename>
 result<void>
-file<_Word, _Access>::write_time_step(_Word value)
+file<_Word, _Access>::write_time_step(real<_Word> value)
 {
     if (!good()) return { error_code::FileNotGood };
+    if (_time_steps < 0)
+    {
+        if constexpr (_Access == io::access::wo)
+            _time_steps = 1;
+        else
+        {
+            const auto value_count = ex_inquire_int(_handle, EX_INQ_TIME);
+            if (value_count < 0) return { exodus_error(value_count) };
+            _time_steps = value_count + 1;
+        }
+    }
 
-    const auto err = ex_put_time(_handle, _time_steps++, &value);
-
-    if (err < 0) return { exodus_error(err) };
+    EXO_CHECK(ex_put_time(_handle, _time_steps++, &value));
     return { };
 }
-FWD_DEC_WRITE(unsigned long, result<void>, write_time_step, unsigned long);
+FWD_DEC_WRITE(unsigned long, result<void>, write_time_step, double);
 
 template<typename _Word, io::access _Access>
 template<typename>
 result<void>
-file<_Word, _Access>::create_block(const Block<_Word>& block)
+file<_Word, _Access>::create_block(
+    const typename block<_Word>::header& block)
 {
-    const auto err = ex_put_block(
+    EXO_CHECK(ex_put_block(
         _handle, 
         EX_ELEM_BLOCK,
         _block_counter++,
         block.type.c_str(),
         block.elements,
         block.nodes_per_elem,
-        0, 0,
+        block.edges_per_entry,
+        block.faces_per_entry,
         block.attributes
-    );
+    ));
 
-    if (err < 0) return { exodus_error(err) };
+    if (block.name.size())
+        EXO_CHECK(ex_put_name(_handle, EX_ELEM_BLOCK, _block_counter - 1, block.name.c_str()));
+
     return { };
 }
-FWD_DEC_WRITE(unsigned long, result<void>, create_block, const Block<unsigned long>&);
+FWD_DEC_WRITE(unsigned long, result<void>, create_block, const typename block<unsigned long>::header&);
+
+static std::optional<ex_entity_type> from_scope(scope s)
+{
+    switch (s)
+    {
+    case scope::element: return EX_ELEM_BLOCK;
+    case scope::node:    return EX_NODAL;
+    case scope::global:  return EX_GLOBAL;
+    default: return std::nullopt;
+    }
+}
+
+template<typename _Word, io::access _Access>
+template<typename>
+result<void>
+file<_Word, _Access>::set_variable_count(
+    scope s, 
+    uint32_t count)
+{
+    if (!good()) return { error_code::FileNotGood };
+
+    auto ex_s = from_scope(s);
+    if (!ex_s) return { error_code::ScopeNotSupported };
+
+    if (!variable_counts.count(s) && _Access  == io::access::rw)
+    {
+        // check the file
+        int num_vars = 0;
+        EXO_CHECK(ex_get_variable_param(_handle, *ex_s, &num_vars));
+        if (num_vars) variable_counts.insert(std::pair(s, num_vars));
+    }
+
+    if (variable_counts.count(s))
+        return { error_code::VariableCountAlreadySet };
+
+    EXO_CHECK(ex_put_variable_param(_handle, *ex_s, count));
+    variable_counts.insert(std::pair(s, count));
+    return { };
+}
+FWD_DEC_WRITE(unsigned long, result<void>, set_variable_count, scope, uint32_t);
+
+template<typename _Word, io::access _Access>
+template<typename>
+result<void>
+file<_Word, _Access>::set_variable_names(
+    scope s, 
+    const std::vector<std::string>& names)
+{
+    if (!good()) return { error_code::FileNotGood };
+
+    auto ex_s = from_scope(s);
+    if (!ex_s) return { error_code::ScopeNotSupported };
+
+    if (!variable_counts.count(s) && _Access  == io::access::rw)
+    {
+        // check the file
+        int num_vars = 0;
+        EXO_CHECK(ex_get_variable_param(_handle, *ex_s, &num_vars));
+        if (num_vars) variable_counts.insert(std::pair(s, num_vars));
+    }
+
+    if (!variable_counts.count(s))
+        return { error_code::VariableCountNotSet };
+    
+    std::vector<char*> _names;
+    _names.reserve(names.size());
+    for (const auto& name : names)
+        _names.push_back(const_cast<char*>(name.c_str()));
+    EXO_CHECK(ex_put_variable_names(_handle, *ex_s, _names.size(), _names.data()));
+    return { };
+}
+FWD_DEC_WRITE(unsigned long, result<void>, set_variable_names, scope, const std::vector<std::string>&);
+
+template<typename _Word, io::access _Access>
+template<typename>
+result<void>
+file<_Word, _Access>::set_variable_name(
+    scope s, 
+    const std::string& name)
+{
+    const std::vector<std::string> names = { name };
+    return set_variable_names(s, names);
+}
+FWD_DEC_WRITE(unsigned long, result<void>, set_variable_name, scope, const std::string&);
+
+template<typename _Word, io::access _Access>
+template<typename>
+result<void>
+file<_Word, _Access>::set_block_connectivity(
+    const typename block<_Word>::header& block, 
+    const int* connect,
+    std::optional<std::size_t> count)
+{
+    if (count && *count != block.nodes_per_elem * block.elements)
+        return { error_code::WrongConnectivityDimensions };
+    
+    EXO_CHECK(ex_put_conn(
+        _handle,
+        EX_ELEM_BLOCK,
+        block.id,
+        connect,
+        nullptr, nullptr
+    ));
+
+    return { };
+}
+FWD_DEC_WRITE(unsigned long, result<void>, set_block_connectivity, const typename block<unsigned long>::header&, const int*, std::optional<std::size_t>);
+
+template<typename _Word, io::access _Access>
+template<typename>
+result<void>
+file<_Word, _Access>::set_entity_count_per_node(
+    const typename block<_Word>::header& block, 
+    const int* connect,
+    std::optional<std::size_t> count)
+{
+    if (block.type != "nsided")
+        return { error_code::WrongBlockType };
+
+    if (count && *count != block.nodes_per_elem * block.elements)
+        return { error_code::WrongNodeSize };
+    
+    EXO_CHECK(ex_put_entity_count_per_polyhedra(
+        _handle,
+        EX_ELEM_BLOCK,
+        block.id,
+        connect
+    ));
+
+    return { };
+}
+FWD_DEC_WRITE(unsigned long, result<void>, set_entity_count_per_node, const typename block<unsigned long>::header&, const int*, std::optional<std::size_t>);
 
 #pragma endregion WRITE
-
 
 #pragma region READ
 
 template<typename _Word, io::access _Access>
 template<typename>
-result<info>
+result<info<_Word>>
 file<_Word, _Access>::get_info() const
 {
-    info i;
+    info<_Word> i;
     char title[MAX_LINE_LENGTH];
-    const auto err = ex_get_init(
+    EXO_CHECK(ex_get_init(
         _handle,
         title,
         &i.num_dim,
@@ -168,13 +337,39 @@ file<_Word, _Access>::get_info() const
         &i.num_elem_blk,
         &i.num_node_sets,
         &i.num_side_sets
-    );
+    ));
 
-    if (err < 0) return { exodus_error(err) };
     i.title = std::string(title);
     return { std::move(i) };
 }
-FWD_DEC_READ(unsigned long, result<info>, get_info);
+FWD_DEC_READ(unsigned long, result<info<unsigned long>>, get_info);
+
+template<typename _Word, io::access _Access>
+template<typename>
+result<std::vector<int>>
+file<_Word, _Access>::get_block_connectivity(
+    const typename block<_Word>::header& block) const
+{
+    std::vector<int> conn(block.elements * block.nodes_per_elem);
+    EXO_CHECK(ex_get_elem_conn(_handle, block.id, conn.data()));
+    return { std::move(conn) };
+}
+FWD_DEC_READ(unsigned long, result<std::vector<int>>, get_block_connectivity, const typename block<unsigned long>::header&);
+
+template<typename _Word, io::access _Access>
+template<typename>
+result<std::vector<int>>
+file<_Word, _Access>::get_entity_count_per_node(
+    const typename block<_Word>::header& block) const
+{
+    if (block.type != "nsided")
+        return { error_code::WrongBlockType };
+    
+    std::vector<int> count(block.nodes_per_elem * block.elements);
+    EXO_CHECK(ex_get_entity_count_per_polyhedra(_handle, EX_ELEM_BLOCK, block.id, count.data()));
+    return { std::move(count) };
+}
+FWD_DEC_READ(unsigned long, result<std::vector<int>>, get_entity_count_per_node, const typename block<unsigned long>::header&);
 
 template<typename _Word, io::access _Access>
 template<typename>
@@ -256,50 +451,51 @@ FWD_DEC_READ(unsigned long, result<std::vector<std::string>>, get_variable_names
 
 template<typename _Word, io::access _Access>
 template<typename>
-result<std::vector<Block<_Word>>>
+result<std::vector<block<_Word>>>
 file<_Word, _Access>::get_blocks() const
 {
    const auto res = get_info();
    if (!res) return { res.error() } ;
 
     std::vector<int> ids(res.value().num_elem_blk);
-    {
-        const auto err = ex_get_ids(_handle, EX_ELEM_BLOCK, ids.data());
-        if (err < 0) return { exodus_error(err) };
-    }
+    EXO_CHECK(ex_get_ids(_handle, EX_ELEM_BLOCK, ids.data()));
 
-    std::vector<Block<_Word>> blocks(ids.size());
+    std::vector<block<_Word>> blocks(ids.size());
     for (uint32_t i = 0; i < blocks.size(); i++)
     {
         ex_block block{0};
         char type[MAX_STR_LENGTH];
-        const auto err = ex_get_block(
+        EXO_CHECK(ex_get_block(
             _handle, 
             EX_ELEM_BLOCK,
             ids[i],
             type,
-            &blocks[i].elements,
-            &blocks[i].nodes_per_elem,
-            &block.num_edges_per_entry,
-            &block.num_faces_per_entry,
-            &blocks[i].attributes
-        );
-        if (err < 0) return { exodus_error(err) };
+            &blocks[i].info.elements,
+            &blocks[i].info.nodes_per_elem,
+            &blocks[i].info.edges_per_entry,
+            &blocks[i].info.faces_per_entry,
+            &blocks[i].info.attributes
+        ));
 
-        blocks[i].id = ids[i];
-        blocks[i].type = std::string(type);
+        blocks[i].info.id = ids[i];
+        blocks[i].info.type = std::string(type);
+
+        char name[MAX_STR_LENGTH];
+        EXO_CHECK(ex_get_name(_handle, EX_ELEM_BLOCK, ids[i], name));
+        if (strlen(name))
+            blocks[i].info.name = std::string(name);
     }
     return { std::move(blocks) };
 }
-FWD_DEC_READ(unsigned long, result<std::vector<Block<unsigned long>>>, get_blocks);
+FWD_DEC_READ(unsigned long, result<std::vector<block<unsigned long>>>, get_blocks);
 
 template<typename _Word, io::access _Access>
 template<typename>
 result<void>
 file<_Word, _Access>::get_block_data(
     const std::string& name, 
-    uint32_t time_step, 
-    Block<_Word>& block) const
+    integer<_Word> time_step, 
+    block<_Word>& block) const
 {
     const auto var_names_res = get_variable_names(scope::element);
     if (!var_names_res) return { var_names_res.error() };
@@ -326,18 +522,18 @@ file<_Word, _Access>::get_block_data(
     else map.at(name).clear();
 
     auto& vec = map.at(name);
-    const auto err = ex_get_var(_handle, time_step, EX_ELEM_BLOCK, index, block.id, block.elements, vec.data());
+    const auto err = ex_get_var(_handle, time_step, EX_ELEM_BLOCK, index, block.info.id, block.info.elements, vec.data());
     if (err < 0) return { exodus_error(err) };
     return { };
 }
-FWD_DEC_READ(unsigned long, result<void>, get_block_data, const std::string&, uint32_t, Block<unsigned long>&);
+FWD_DEC_READ(unsigned long, result<void>, get_block_data, const std::string&, int64_t, block<unsigned long>&);
 
 template<typename _Word, io::access _Access>
 template<typename>
 result<std::vector<std::vector<_Word>>>
 file<_Word, _Access>::get_element_variable_values(
-    const uint32_t time_step, 
-    const uint32_t var_ind) const
+    const integer<_Word> time_step, 
+    const integer<_Word> var_ind) const
 {
     const auto time_step_res = get_time_values();
     if (!time_step_res) return { time_step_res.error() };
@@ -377,7 +573,7 @@ file<_Word, _Access>::get_element_variable_values(
 
     return { std::move(ret) };
 }
-FWD_DEC_READ(unsigned long, result<std::vector<std::vector<unsigned long>>>, get_element_variable_values, const uint32_t, const uint32_t);
+FWD_DEC_READ(unsigned long, result<std::vector<std::vector<unsigned long>>>, get_element_variable_values, const int64_t, const int64_t);
 
 #pragma endregion READ
 

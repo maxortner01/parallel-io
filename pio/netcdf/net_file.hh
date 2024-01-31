@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <functional>
 
 namespace pio::netcdf
 {
@@ -90,6 +91,7 @@ namespace pio::netcdf
             TypeMismatch,
             SizeMismatch,
             DimensionSizeMismatch,
+            DimensionDoesntExist,
             NullData
         };
 
@@ -267,6 +269,13 @@ namespace pio::netcdf
         get_dimension(const std::string& name) const;
 
         /* WRITE / READ-WRITE */
+
+        template<typename _Type, WRITE_TEMP>
+        result<void>
+        define_variable(const std::string& name, const std::vector<std::string>& dim_names);
+
+        WRITE result<void>
+        define(std::function<result<void>()> function);
 
         /**
          * @brief Asynchronous request to write given data to a region in the file
