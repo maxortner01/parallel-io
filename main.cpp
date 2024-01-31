@@ -35,7 +35,7 @@ write_coloring(
 
     //exodus::file<W, io::access::rw> file(name);
     
-    // here's where we read/write coordinate information
+    // here's where we read/write coordinate information !!!
 
     // then we write the block info
     io::distributor dist(MPI_COMM_WORLD);

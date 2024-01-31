@@ -49,6 +49,8 @@ namespace pio::io
 
     // RO needs to allocate memory to store values *and* keep track of requests
     // WO needs only to keep track of requests
+
+    /// Represents a promise for the completion of a task
     template<io::access _Access, typename E, typename... _Types>
     struct promise
     {
@@ -57,6 +59,9 @@ namespace pio::io
         template<std::size_t _Index>
         using integral_type = typename impl::NthType<_Index, _Types...>::integral_type;
 
+        /// Construct a promise
+        /// @param handle the ID handle of the file to which this corresponds
+        /// @param counts the size of the data to be retrieved for each request (a list of zeros for write-only requests)
         promise(int handle, const std::array<std::size_t, RequestCount>& counts) :
             _handle(handle),
             _error(std::nullopt)
@@ -100,6 +105,8 @@ namespace pio::io
 
         const E& error() const { assert(_error.has_value()); return _error.value(); }
 
+        /// Block until the requests have finished
+        /// @return List of status strings for each request
         std::array<std::string, RequestCount> wait() const
         {
             assert(good());
@@ -119,6 +126,8 @@ namespace pio::io
             return statuses;
         }
 
+        /// Get the data from the given request as a vector
+        /// \note \ref promise::wait() should be called before trying to access the data
         template<std::size_t _Index>
         std::vector<integral_type<_Index>>
         get_data() const
@@ -135,6 +144,8 @@ namespace pio::io
                 assert(false); // need better way to handle this...
         }
 
+        /// Get the raw data pointer for a given request
+        /// \note \ref promise::wait() should be called before trying to access the data
         template<std::size_t _Index>
         integral_type<_Index>*
         data()

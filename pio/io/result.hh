@@ -33,6 +33,7 @@ namespace pio::io
 
     }
 
+    /// Represents the result from an operation or an error
     template<typename T, typename E = int>
     struct result : detail::base_result<T, E>
     {
@@ -50,6 +51,7 @@ namespace pio::io
         std::optional<T> _value;
     };
 
+    /// \copydoc result
     template<typename E>
     struct result<void, E> : detail::base_result<void, E>
     {   

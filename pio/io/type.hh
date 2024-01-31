@@ -2,39 +2,30 @@
 
 #include "../external.hh"
 
-namespace pio::error
-{
-    enum class code
-    {
-        Success
-    };
-}
-
+/// Basic input and output information
 namespace pio::io
 {
+    /// Possible access privileges
     enum class access
     {
-        ro = 0b01,
-        wo = 0b10,
-        rw = 0b11
+        ro = 0b01, /// read-only
+        wo = 0b10, /// write-only
+        rw = 0b11  /// read-write
     };
 
-    // Does acc have write access?
+    /// Returns whether given access has write privileges
     constexpr bool write_access(access acc)
     {
         return (int)acc & (int)access::wo;
     }
 
+    /// Reduces the given access to read only or write only
     constexpr access reduce_access(access acc)
     {
         return (write_access(acc) ? io::access::wo : io::access::ro);
     }
 
-    /**
-     * @brief An isomorphism of primitive data-types to MPI/NC data types.
-     * 
-     * @tparam The NC data type
-     */
+    /// An isomorphism of primitive data-types to MPI/NC data types.
     template<nc_type T>
     struct type
     {   };
@@ -51,7 +42,7 @@ namespace pio::io
         const static func_ptr<integral_type> func;
     };
 
-    /** @copydoc Type */
+    /** @copydoc type */
     template<>
     struct type<NC_CHAR> 
     { 
@@ -60,7 +51,7 @@ namespace pio::io
         const static func_ptr<integral_type> func;
     };
     
-    /** @copydoc Type */
+    /** @copydoc type */
     template<>
     struct type<NC_FLOAT> 
     { 
@@ -69,7 +60,7 @@ namespace pio::io
         const static func_ptr<integral_type> func;
     };
     
-    /** @copydoc Type */
+    /** @copydoc type */
     template<>
     struct type<NC_INT> 
     { 
@@ -80,6 +71,7 @@ namespace pio::io
 
 #define CASE_SIZE_TYPE(t) case t: return sizeof(io::type<t>::integral_type)
 
+    /// Get the byte-size of an NetCDF data type
     static constexpr std::size_t nc_sizeof(nc_type type)
     {
         switch (type)
