@@ -7,6 +7,7 @@
 
 #include "../io.hh"
 
+/// Functionality for handling NetCDF files
 namespace pio::exodus
 {
     /// Basic netcdf scope

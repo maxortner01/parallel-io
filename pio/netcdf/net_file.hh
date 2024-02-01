@@ -22,6 +22,7 @@
 #include <string>
 #include <functional>
 
+/// All of the functionality for handling NetCDF files
 namespace pio::netcdf
 {
     namespace impl
@@ -132,6 +133,7 @@ namespace pio::netcdf
     template<io::access _Access, typename... _Types>
     using promise = io::promise<_Access, error_code, _Types...>;
 
+    /// A NetCDF file
     template<io::access _Access>
     struct file
     {
@@ -149,74 +151,29 @@ namespace pio::netcdf
         
         /* READ / READ-WRITE */
 
-        /**
-         * @brief Get the lengths of each dimension in the file
-         * 
-         * This method is for read only or read-write files.
-         * 
-         * @return result<std::unordered_map<std::string, MPI_Offset>> Error or a map of dimension names to their lengths
-         */
+        /// Get the lengths of each dimension in the file
         READ result<std::unordered_map<std::string, MPI_Offset>>
         get_dimension_lengths() const;
 
-        /**
-         * @brief Get basic info about the file
-         * 
-         * This method is for read only or read-write files.
-         * 
-         * @return result<info> Error or a collection of basic info about the file
-         */
+        /// Get basic info about the file
         READ result<info> 
         inquire() const;
 
-        /**
-         * @brief Get the names of all of the variables
-         * 
-         * This method is for read only or read-write files.
-         * 
-         * @return result<std::vector<std::string>> Error or a list of variable names
-         */
+        /// Get the names of all of the variables
         READ result<std::vector<std::string>>
         variable_names() const;
 
-        /**
-         * @brief Get the features of a variable
-         * 
-         * This method is for read only or read-write files.
-         * 
-         * @param name Name of the variable
-         * @return result<variable> Error or the information about a variable 
-         */
+        /// Get the features of a variable
         READ result<variable>
         get_variable_info(const std::string& name) const;
 
-        /**
-         * @brief Get the information about the data a variable describes
-         * 
-         * This method is for read only or read-write files
-         * 
-         * @param name Name of the variable
-         * @return result<value_info> Error or the information about the variable values
-         */
+        /// Get the information about the data a variable describes
         READ result<value_info>
         get_variable_value_info(const std::string& name) const;
         
         // TODO: Possibly make the return type a 2d ragged array which is the 
         // data for each dimension
-        /**
-         * @brief Blocking method that reads a requested data region
-         * 
-         * This method is for read only or read-write files
-         * 
-         * If the requested data type is different than the data contained in the file
-         * the result will contain a @ref error_code::TypeMismatch error.
-         * 
-         * @tparam _Type The data-type of the variable from @ref pio::types
-         * @param name  The name of the variable
-         * @param start The starting indices for each dimension (must be same length as dimensions of this variable)
-         * @param count The amount of objects after the starting index for each dimension (must be same length as start)
-         * @return result<std::vector<typename _Type::integral_type>> Error or the requested data region
-         */
+        /// Copy a section of the file into memory \note This is a blocking method
         template<typename _Type, READ_TEMP>
         result<std::vector<typename _Type::integral_type>>
         read_variable_sync(
@@ -224,20 +181,7 @@ namespace pio::netcdf
             const std::vector<MPI_Offset>& start,
             const std::vector<MPI_Offset>& count) const;
 
-        /**
-         * @brief Asynchronous request to read a requested data region
-         * 
-         * This method is for read only or read-write files
-         * 
-         * If the requested data type is different than the data contained in the file
-         * the result will contain a @ref error_code::TypeMismatch error.
-         * 
-         * @tparam _Type The data-type of the variable from @ref pio::types
-         * @param name  The name of the variable
-         * @param start The starting indices for each dimension (must be same length as dimensions of this variable)
-         * @param count The amount of objects after the starting index for each dimension (must be same length as start)
-         * @return const promise<io::access::ro, _Type> Error or a promise containing the requested data
-         */
+        /// Produces an asynchronous request to copy a section of data from the file into memory
         template<typename _Type, READ_TEMP>
         const promise<io::access::ro, _Type>
         get_variable_values(
@@ -245,51 +189,27 @@ namespace pio::netcdf
             const std::vector<MPI_Offset>& start,
             const std::vector<MPI_Offset>& count) const;
 
-        /**
-         * @brief Get the dimension information of an id
-         * 
-         * This method is for read only or read-write files
-         * 
-         * @param id The id of the dimension
-         * @return result<dimension> Error or the dimension information
-         */
+        /// Get a dimension by id
         READ result<dimension>
         get_dimension(int id) const;
 
         
-        /**
-         * @brief Get the dimension information from a name
-         * 
-         * This method is for read only or read-write files
-         * 
-         * @param name The name of the dimension
-         * @return result<dimension> Error or the dimension information
-         */
+        /// Get a dimension by name
         READ result<dimension>
         get_dimension(const std::string& name) const;
 
         /* WRITE / READ-WRITE */
 
+        /// Defines a new variable in the file \note The file must be in define mode or else this will give an error
         template<typename _Type, WRITE_TEMP>
         result<void>
         define_variable(const std::string& name, const std::vector<std::string>& dim_names);
 
+        /// Execute a routine within define mode \note The file is put into and out of define mode in the scope of this method
         WRITE result<void>
         define(std::function<result<void>()> function);
 
-        /**
-         * @brief Asynchronous request to write given data to a region in the file
-         * 
-         * This method is for write only or read-write files
-         * 
-         * @tparam _Type The data type of the variable from @ref pio::types
-         * @param name   The name of the variable
-         * @param data   Pointer to the data to write into the file
-         * @param size   The length of the data
-         * @param offset The starting indices for each dimension (must be same length as dimensions of this variable)
-         * @param count  The amount of objects after the starting index for each dimension (must be same length as start)
-         * @return const promise<io::access::wo, _Type> Error or a promise to complete the write request
-         */
+        /// Produces an asynchronous request to write a section of data to a variable
         template<typename _Type, WRITE_TEMP>
         const promise<io::access::wo, _Type>
         write_variable(
