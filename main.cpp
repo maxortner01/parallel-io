@@ -29,7 +29,7 @@ write_coloring(
     {
         std::vector<exodus::real<W>> r(colors.size());
         for (std::size_t i = 0; i < colors.size(); i++)
-            r[i] = static_cast<exodus::real<W>>(colors[i]) + 10;
+            r[i] = static_cast<exodus::real<W>>(colors[i]) + 1;
         return r;
     }();
 
@@ -61,18 +61,19 @@ write_coloring(
     assert(file);
 
     // would be nice to encapsulate this exodus logic into the pio class
-    uint32_t var_index = 0;
-    const auto len_name = file.get_dimension("len_name").value().length;
-    const auto len_var  = file.get_dimension("num_elem_var").value().length;
-    const auto var = file.get_variable_values<types::Char>("name_elem_var", { 0, 0 }, { len_var, len_name });
-    if (var)
+    //file.get_variable_info("name_elem_var").value().dimensions[0].name
+
+    const auto var_res = file.exodus.get_variables();
+    if (!var_res)
     {
-        const auto stat = var.wait();
-        const auto names = netcdf::format(var.template get_data<0>(), len_var, len_name);
-        const auto it = std::find(names.begin(), names.end(), "color");
-        assert(it != names.end());
-        var_index = std::distance(names.begin(), it) + 1;
+        std::cout << "error getting variables: " << var_res.error().message() << "\n";
+        assert(var_res);
     }
+
+    const auto& names = var_res.value();
+    const auto it = std::find(names.begin(), names.end(), "color");
+    assert(it != names.end());
+    const auto var_index = std::distance(names.begin(), it) + 1;
 
     // Define the color variable
     const auto res = file.define([&]() -> netcdf::result<void>

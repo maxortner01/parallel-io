@@ -43,12 +43,66 @@ std::string error_code::_to_string(code c)
     case DimensionSizeMismatch: return "dimension size mismatch";
     case DimensionDoesntExist:  return "given dimension name doesn't exist";
     case NullData:              return "Data Pointer is Null";
+    case NullFile:              return "File reference is corrupted";
+    case VariableDoesntExist:   return "Requested variable name doesn't exist";
     default: return "";
     }
 }
 
+/* EXODUS FILE PIO IMPLEMENTATION */
+
 template<io::access _Access>
-file<_Access>::file(const std::string& filename)
+file<_Access>::exodus_file::exodus_file(file* base_file) :
+    _file(base_file)
+{   }
+
+// need to make more specific errors
+template<io::access _Access>
+template<typename>
+result<std::vector<std::string>>
+file<_Access>::exodus_file::get_variables() const
+{
+    if (!_file) return { error_code::NullFile };
+
+    // make sure name_elem_var exists
+    if (!([&]() -> bool
+    {
+        const auto res = _file->variable_names();
+        if (!res) return false;
+        const auto& var_names = res.value();
+
+        const auto it = std::find(var_names.begin(), var_names.end(), "name_elem_var");
+        if (it == var_names.end()) return false;
+
+        return true;
+    }())) return { error_code::VariableDoesntExist };
+
+    const auto res = _file->get_variable_info("name_elem_var");
+    if (!res) return { res.error() };
+    const auto& var_info = res.value();
+
+    // The dimensions need to be correct, it needs to be num_elem_var x len_name
+    if (var_info.dimensions.size() != 2) return { error_code::DimensionSizeMismatch };
+    const auto it_len_name     = std::find_if(var_info.dimensions.begin(), var_info.dimensions.end(), [](const auto& dim) { return dim.name == "len_name"; });
+    const auto it_num_elem_var = std::find_if(var_info.dimensions.begin(), var_info.dimensions.end(), [](const auto& dim) { return dim.name == "num_elem_var"; });
+    if (it_len_name     == var_info.dimensions.end() || 
+        it_num_elem_var == var_info.dimensions.end())
+            return { error_code::DimensionSizeMismatch };
+
+    // Read the values from the file
+    const auto& [var_count, len_name] = std::tie(it_num_elem_var->length, it_len_name->length);
+    const auto var = _file->get_variable_values<types::Char>("name_elem_var", { 0, 0 }, { var_count, len_name });
+    if (!var) return { var.error() };
+    const auto stat = var.wait();
+    return { netcdf::format(var.template get_data<0>(), var_count, len_name) };
+}
+FWD_DEC_READ(result<std::vector<std::string>>, exodus_file::get_variables);
+
+/* NETCDF FILE IMPLEMENTATION */
+
+template<io::access _Access>
+file<_Access>::file(const std::string& filename) :
+    exodus(this)
 {
     if constexpr (_Access == io::access::ro)
     {
@@ -108,10 +162,11 @@ file<_Access>::variable_names() const
     std::vector<std::string> ret(inq.value().variables);
     for (uint32_t i = 0; i < inq.value().variables; i++)
     {
-        std::string name;
-        name.resize(MAX_STR_LENGTH);
-        ncmpi_inq_varname(handle, i, &name[0]);
-        ret[i] = name;
+        char buffer[MAX_STR_LENGTH];
+        memset(buffer, 0, MAX_STR_LENGTH);
+        ncmpi_inq_varname(handle, i, buffer);
+        for (uint32_t j = 0; j < MAX_STR_LENGTH; j++)
+            if (buffer[j]) ret[i] += buffer[j];
     }
     return { std::move(ret) };
 }
@@ -204,6 +259,7 @@ file<_Access>::get_dimension_lengths() const
     for (uint32_t i = 0; i < inq.value().dimensions; i++)
     {
         char name[MAX_NAME_LENGTH];
+        memset(name, 0, MAX_NAME_LENGTH);
         MPI_Offset offset = 0;
         auto err = ncmpi_inq_dim(handle, i, name, &offset);
         if (err != NC_NOERR) return { err };
@@ -298,10 +354,12 @@ file<_Access>::get_dimension(int id) const
     dim.id = id;
 
     char _name[MAX_NAME_LENGTH];
+    memset(_name, 0, MAX_NAME_LENGTH);
     const auto err = ncmpi_inq_dim(handle, id, _name, &dim.length);
     if (err != NC_NOERR) return { netcdf_error(err) };
 
-    dim.name = std::string(_name);
+    for (uint32_t i = 0; i < MAX_NAME_LENGTH; i++)
+        if (_name[i]) dim.name += _name[i];
 
     return { std::move(dim) };
 }
@@ -334,8 +392,6 @@ file<_Access>::define_variable(const std::string& name, const std::vector<std::s
         if (!res) return { error_code::DimensionDoesntExist };
         dimensions.push_back(res.value().id);
     }
-
-    //ncmpi_data
 
     int var_id;
     NET_CHECK(ncmpi_def_var(handle, name.c_str(), _Type::nc, dimensions.size(), dimensions.data(), &var_id));

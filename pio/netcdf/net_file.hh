@@ -93,7 +93,9 @@ namespace pio::netcdf
             SizeMismatch,
             DimensionSizeMismatch,
             DimensionDoesntExist,
-            NullData
+            NullData,
+            NullFile,
+            VariableDoesntExist
         };
 
         /**
@@ -137,7 +139,24 @@ namespace pio::netcdf
     template<io::access _Access>
     struct file
     {
+        struct exodus_file
+        {
+            exodus_file(file* base_file);
+
+            /// \brief Copy data into memory for a given ExodusII variable
+            /// \todo The returned errors are not specific enough to be super helpful
+            READ result<std::vector<std::string>>
+            get_variables() const;
+
+        private:
+            file* _file;
+        } exodus;
+
         file(const std::string& filename);
+        
+        file(const file&) = delete;
+        file(file&&) = delete;
+        
         ~file();
 
         auto error_string() const { return std::string(ncmpi_strerror(err)); }
