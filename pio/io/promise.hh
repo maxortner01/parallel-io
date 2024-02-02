@@ -146,6 +146,7 @@ namespace pio::io
 
         /// Get the raw data pointer for a given request
         /// \note \ref promise::wait() should be called before trying to access the data
+        /// \note This method is not const-qualified, so the user shouldn't be able to access this from a returned promise
         template<std::size_t _Index>
         integral_type<_Index>*
         data()

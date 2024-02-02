@@ -20,24 +20,23 @@ write_coloring(
     const std::vector<exodus::block<W>>& blocks,
     const std::vector<std::size_t>& colors)
 {
+    // Calculate the total amount of elements in all the blocks (this should be the same size as colors)
     const auto total_elem = std::accumulate(blocks.begin(), blocks.end(), 0, [](std::size_t a, const exodus::block<W>& block) { return a + block.info.elements; });
     assert(colors.size() == total_elem);
 
+    // Convert from std::size_t to real<W>
     const auto colorings = [&]() -> std::vector<exodus::real<W>>
     {
         std::vector<exodus::real<W>> r(colors.size());
         for (std::size_t i = 0; i < colors.size(); i++)
-            r[i] = static_cast<exodus::real<W>>(colors[i]);
+            r[i] = static_cast<exodus::real<W>>(colors[i]) + 10;
         return r;
     }();
 
     constexpr nc_type TYPE = (sizeof(W) == 8 ? types::Double::nc : types::Float::nc);
 
-    //exodus::file<W, io::access::rw> file(name);
-    
-    // here's where we read/write coordinate information !!!
-
     // then we write the block info
+    // we will distribute the work over MPI_COMM_WORLD
     io::distributor dist(MPI_COMM_WORLD);
 
     uint32_t index = 0;
@@ -61,11 +60,26 @@ write_coloring(
     netcdf::file<io::access::rw> file(name);
     assert(file);
 
+    // would be nice to encapsulate this exodus logic into the pio class
+    uint32_t var_index = 0;
+    const auto len_name = file.get_dimension("len_name").value().length;
+    const auto len_var  = file.get_dimension("num_elem_var").value().length;
+    const auto var = file.get_variable_values<types::Char>("name_elem_var", { 0, 0 }, { len_var, len_name });
+    if (var)
+    {
+        const auto stat = var.wait();
+        const auto names = netcdf::format(var.template get_data<0>(), len_var, len_name);
+        const auto it = std::find(names.begin(), names.end(), "color");
+        assert(it != names.end());
+        var_index = std::distance(names.begin(), it) + 1;
+    }
+
+    // Define the color variable
     const auto res = file.define([&]() -> netcdf::result<void>
     {
         for (const auto& block : blocks)
         {
-            const auto res = file.define_variable<io::type<TYPE>>("vals_elem_var1eb" + std::to_string(block.info.id), { "time_step", "num_el_in_blk" + std::to_string(block.info.id) });
+            const auto res = file.define_variable<io::type<TYPE>>("vals_elem_var" + std::to_string(var_index) + "eb" + std::to_string(block.info.id), { "time_step", "num_el_in_blk" + std::to_string(block.info.id) });
             if (!res) return { res.error() };
         }
         return { };
@@ -76,6 +90,8 @@ write_coloring(
         std::cout << "error creating var: " << res.error().message() << "\n";
         assert(res);
     }
+    
+    // here's where we read/write coordinate information !!!
 
     using promise = netcdf::promise<io::access::wo, io::type<TYPE>>;
     std::vector<promise> promises;

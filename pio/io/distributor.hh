@@ -11,39 +11,43 @@
 namespace pio::io
 {
     /** \brief Handles distributing data volumes evenly across given MPI execution space
-      * 
-      * Basic usage of this struct entails (firstly) creating it with an MPI execution space
-      * \code {.cpp}
-      * io::distributor dist(MPI_COMM_WORLD); 
-      * \endcode
-      * Then, create your list of volumes. For example, if you want to use this to extract variable data from a file
-      * your list can be a list of strings with the corresponding types
-      * \code {.cpp}
-      * const std::vector<std::string> names = { "var1", "var2", ... };
-      * \endcode
-      * Then create a volume for each name
-      * \code {.cpp}
-      * for (uint32_t i = 0; i < names.size(); i++)
-      * {
-      *     io::distributor::volume vol;
-      *     vol.data_index = i;
-      *     // set vol.data_type to the corresponding type of the i-th variable
-      *     // push each dimension size to vol.dimensions
-      *     dist.data_volumes.push_back(vol);
-      * }
-      * \endcode
-      * Then, the distributor is ready to go:
-      * \code {.cpp}
-      * const std::vector<io::distributor::subvolume> subvols = dist.split();
-      * for (const auto& subvol : subvols)
-      * {
-      *     // This is rather verbose, but gives the correct functionality
-      *     const auto& variable_name = names[dist.data_volumes[subvol.volume_index].data_index];
-      *     // now you can perform a read or a write with this information, something like:
-      *     // file.write_variable<io::type::Float::nc>(variable_name, &data[0], data.size(), subvol.offsets, subvol.counts);
-      * }
-      * \endcode
-      */
+     * 
+     * \todo When the MPI process count exeeds the total amount of cells, we get size errors. We can do two things: either limit the amount
+     * of proccessors when we perform the computation <i>or</i> we can check all the subvolumes we generated and erase the ones that have 
+     * a vanishing internal volume (easiest).
+     * 
+     * Basic usage of this struct entails (firstly) creating it with an MPI execution space
+     * \code {.cpp}
+     * io::distributor dist(MPI_COMM_WORLD); 
+     * \endcode
+     * Then, create your list of volumes. For example, if you want to use this to extract variable data from a file
+     * your list can be a list of strings with the corresponding types
+     * \code {.cpp}
+     * const std::vector<std::string> names = { "var1", "var2", ... };
+     * \endcode
+     * Then create a volume for each name
+     * \code {.cpp}
+     * for (uint32_t i = 0; i < names.size(); i++)
+     * {
+     *     io::distributor::volume vol;
+     *     vol.data_index = i;
+     *     // set vol.data_type to the corresponding type of the i-th variable
+     *     // push each dimension size to vol.dimensions
+     *     dist.data_volumes.push_back(vol);
+     * }
+     * \endcode
+     * Then, the distributor is ready to go:
+     * \code {.cpp}
+     * const std::vector<io::distributor::subvolume> subvols = dist.split();
+     * for (const auto& subvol : subvols)
+     * {
+     *     // This is rather verbose, but gives the correct functionality
+     *     const auto& variable_name = names[dist.data_volumes[subvol.volume_index].data_index];
+     *     // now you can perform a read or a write with this information, something like:
+     *     // file.write_variable<io::type::Float::nc>(variable_name, &data[0], data.size(), subvol.offsets, subvol.counts);
+     * }
+     * \endcode
+     */
     struct distributor
     {
         /// Volume of data to distribute

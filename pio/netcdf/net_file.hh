@@ -137,7 +137,6 @@ namespace pio::netcdf
     template<io::access _Access>
     struct file
     {
-
         file(const std::string& filename);
         ~file();
 
@@ -261,6 +260,30 @@ namespace pio::netcdf
         res.wait();
 
         return true;
+    }
+
+    static std::vector<std::string> format(
+        const std::vector<char>& data,
+        const std::size_t& count,
+        const std::size_t& str_len)
+    {
+        std::vector<std::string> r;
+        r.reserve(str_len);
+
+        for (uint32_t i = 0; i < count; i++)
+        {
+            std::string s;
+
+            for (uint32_t j = 0; j < str_len; j++)
+            {
+                const auto& c = data[i * str_len + j];
+                if (c) s += data[i * str_len + j];
+            }
+
+            r.push_back(std::move(s));
+        }
+
+        return r;
     }
 
 }
