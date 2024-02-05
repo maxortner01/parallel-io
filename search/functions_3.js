@@ -15,5 +15,6 @@ var searchData=
   ['get_5fvariable_5finfo',['get_variable_info',['../structpio_1_1netcdf_1_1file.html#a7886a47f1591d57a35cee0a37ad3f430',1,'pio::netcdf::file']]],
   ['get_5fvariable_5fnames',['get_variable_names',['../structpio_1_1exodus_1_1file.html#a2548711dffb06a64c2cdadfd9c52a5c0',1,'pio::exodus::file']]],
   ['get_5fvariable_5fvalue_5finfo',['get_variable_value_info',['../structpio_1_1netcdf_1_1file.html#a8bf83ce12e1189e2e45e35c99f8b9dc3',1,'pio::netcdf::file']]],
-  ['get_5fvariable_5fvalues',['get_variable_values',['../structpio_1_1netcdf_1_1file.html#a0816d066c4e0607ef381baa0bfc662c7',1,'pio::netcdf::file']]]
+  ['get_5fvariable_5fvalues',['get_variable_values',['../structpio_1_1netcdf_1_1file.html#a0816d066c4e0607ef381baa0bfc662c7',1,'pio::netcdf::file']]],
+  ['get_5fvariables',['get_variables',['../structpio_1_1netcdf_1_1file_1_1exodus__file.html#ae91a6e05ae3e03ae12f4061a0490ea1e',1,'pio::netcdf::file::exodus_file']]]
 ];
