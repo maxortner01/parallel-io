@@ -47,6 +47,12 @@ namespace pio::io
         T&       value()       { return _value.value(); }
         const T& value() const { return _value.value(); }
 
+        T&       operator*()       { return _value.value(); }
+        const T& operator*() const { return _value.value(); }
+
+        T*       operator->()       { return &(*_value); }
+        const T* operator->() const { return &(*std::as_const(_value)); }
+
     private:
         std::optional<T> _value;
     };
