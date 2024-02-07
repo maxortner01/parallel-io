@@ -3,4 +3,4 @@ Meant to serve as a sandbox for testing parallel I/O file reading/writing for po
 
 Dependencies are not built in at the moment, but `spack add exodusii parallel-netcdf mpi` should do it.
 
-For information about getting started or building, check out [the documentation](https://maxortner01.github.io/parallel-io).
+For information about getting started or building, check out [the documentation](https://pio.maxortner.com).
