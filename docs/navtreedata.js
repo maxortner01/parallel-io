@@ -24,12 +24,14 @@ for the JavaScript code in this file
 var NAVTREE =
 [
   [ "Parallel IO", "index.html", [
+    [ "Info", "index.html#main_info", [
+      [ "Getting Started", "index.html#started", [
+        [ "Building", "index.html#started_building", null ],
+        [ "Important Objects", "index.html#started_objs", null ]
+      ] ]
+    ] ],
     [ "Todo List", "todo.html", null ],
     [ "Namespaces", "namespaces.html", [
-      [ "Started", "index.html#Getting", [
-        [ "Information", "index.html#Important", null ],
-        [ "Building", "index.html#Building", null ]
-      ] ],
       [ "Namespace List", "namespaces.html", "namespaces_dup" ],
       [ "Namespace Members", "namespacemembers.html", [
         [ "All", "namespacemembers.html", null ],

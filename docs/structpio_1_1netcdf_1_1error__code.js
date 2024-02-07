@@ -7,7 +7,8 @@ var structpio_1_1netcdf_1_1error__code =
       [ "DimensionDoesntExist", "structpio_1_1netcdf_1_1error__code.html#a54890ae529565dcd110a1a79b07566f5af5571058453fcf32fdf34a8b1698ad73", null ],
       [ "NullData", "structpio_1_1netcdf_1_1error__code.html#a54890ae529565dcd110a1a79b07566f5a9e41a0c912da4ea6dcea805f06d71a30", null ],
       [ "NullFile", "structpio_1_1netcdf_1_1error__code.html#a54890ae529565dcd110a1a79b07566f5a4406d44ae9afc32a75632bb9822f2e57", null ],
-      [ "VariableDoesntExist", "structpio_1_1netcdf_1_1error__code.html#a54890ae529565dcd110a1a79b07566f5a071f223c92ce626d7d0af042641a2b33", null ]
+      [ "VariableDoesntExist", "structpio_1_1netcdf_1_1error__code.html#a54890ae529565dcd110a1a79b07566f5a071f223c92ce626d7d0af042641a2b33", null ],
+      [ "FailedTaskCreation", "structpio_1_1netcdf_1_1error__code.html#a54890ae529565dcd110a1a79b07566f5aa2b889d70e92b69cc1dc311a8b93ddf4", null ]
     ] ],
     [ "error_code", "structpio_1_1netcdf_1_1error__code.html#a43013360789b237fdfa3079b07427c49", null ],
     [ "error_code", "structpio_1_1netcdf_1_1error__code.html#ad14c6dfbc8a08cf03ab716eced22468b", null ],

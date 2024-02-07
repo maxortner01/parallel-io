@@ -33,6 +33,7 @@
   <td id="projectalign" style="padding-left: 0.5em;">
    <div id="projectname">Parallel IO
    </div>
+   <div id="projectbrief">Parallel File I/O for Scientific Computing</div>
   </td>
  </tr>
  </tbody>
@@ -127,9 +128,9 @@ Typedefs</h2></td></tr>
 <tr class="memitem:ac74e990e8af2697dfb8d43235c808d75"><td class="memItemLeft" align="right" valign="top"><a id="ac74e990e8af2697dfb8d43235c808d75"></a>
 using&#160;</td><td class="memItemRight" valign="bottom"><b>coord_values</b> = std::unordered_map&lt; std::string, std::vector&lt; double &gt; &gt;</td></tr>
 <tr class="separator:ac74e990e8af2697dfb8d43235c808d75"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a61cac3ea714239cc01ce819a474e0af3"><td class="memItemLeft" align="right" valign="top"><a id="a61cac3ea714239cc01ce819a474e0af3"></a>
-using&#160;</td><td class="memItemRight" valign="bottom"><b>double_promise</b> = <a class="el" href="structpio_1_1io_1_1promise.html">promise</a>&lt; <a class="el" href="namespacepio_1_1io.html#a274c30c2eb9dfe7762e52e40fd456d5eae0a0862398ccf49afa6c809d3832915c">io::access::wo</a>, <a class="el" href="structpio_1_1io_1_1type_3_01NC__DOUBLE_01_4.html">types::Double</a> &gt;</td></tr>
-<tr class="separator:a61cac3ea714239cc01ce819a474e0af3"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a6fcd4571a1012009c4baa8419276ede1"><td class="memItemLeft" align="right" valign="top"><a id="a6fcd4571a1012009c4baa8419276ede1"></a>
+using&#160;</td><td class="memItemRight" valign="bottom"><b>P</b> = <a class="el" href="structpio_1_1io_1_1promise.html">promise</a>&lt; <a class="el" href="namespacepio_1_1io.html#a274c30c2eb9dfe7762e52e40fd456d5eae0a0862398ccf49afa6c809d3832915c">io::access::wo</a>, <a class="el" href="structpio_1_1io_1_1type_3_01NC__DOUBLE_01_4.html">types::Double</a> &gt;</td></tr>
+<tr class="separator:a6fcd4571a1012009c4baa8419276ede1"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:a6b72fd60ed7f47d26a5c27a7bc843fa8"><td class="memItemLeft" align="right" valign="top"><a id="a6b72fd60ed7f47d26a5c27a7bc843fa8"></a>
 using&#160;</td><td class="memItemRight" valign="bottom"><b>map_type</b> = std::unordered_map&lt; std::string, MPI_Offset &gt;</td></tr>
 <tr class="separator:a6b72fd60ed7f47d26a5c27a7bc843fa8"><td class="memSeparator" colspan="2">&#160;</td></tr>
@@ -150,9 +151,9 @@ Functions</h2></td></tr>
 <tr class="memitem:aa5fa2763176072cd1655885450544f05"><td class="memItemLeft" align="right" valign="top"><a id="aa5fa2763176072cd1655885450544f05"></a>
 &#160;</td><td class="memItemRight" valign="bottom"><b>FWD_DEC_READ</b> (<a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; coord_values &gt;, exodus_file::get_node_coordinates, bool)</td></tr>
 <tr class="separator:aa5fa2763176072cd1655885450544f05"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a3a7b31d2d9733fc739afa21ac1e87872"><td class="memItemLeft" align="right" valign="top"><a id="a3a7b31d2d9733fc739afa21ac1e87872"></a>
-&#160;</td><td class="memItemRight" valign="bottom"><b>FWD_DEC_WRITE</b> (<a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; std::vector&lt; const <a class="el" href="structpio_1_1io_1_1promise.html">double_promise</a> &gt;&gt;, exodus_file::write_node_coordinates, MPI_Comm, const coord_values &amp;)</td></tr>
-<tr class="separator:a3a7b31d2d9733fc739afa21ac1e87872"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a017e8bf168f9a8fb4232f04f20ad05f3"><td class="memItemLeft" align="right" valign="top"><a id="a017e8bf168f9a8fb4232f04f20ad05f3"></a>
+&#160;</td><td class="memItemRight" valign="bottom"><b>FWD_DEC_WRITE</b> (<a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; std::vector&lt; std::shared_ptr&lt; const <a class="el" href="structpio_1_1io_1_1promise.html">P</a> &gt;&gt;&gt;, exodus_file::write_node_coordinates, MPI_Comm, const coord_values &amp;)</td></tr>
+<tr class="separator:a017e8bf168f9a8fb4232f04f20ad05f3"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:adb079df2f4c559a3de8e94050b00c192"><td class="memItemLeft" align="right" valign="top"><a id="adb079df2f4c559a3de8e94050b00c192"></a>
 &#160;</td><td class="memItemRight" valign="bottom"><b>FWD_DEC_READ</b> (<a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; std::vector&lt; std::string &gt;&gt;, variable_names)</td></tr>
 <tr class="separator:adb079df2f4c559a3de8e94050b00c192"><td class="memSeparator" colspan="2">&#160;</td></tr>

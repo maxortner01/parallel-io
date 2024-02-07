@@ -33,6 +33,7 @@
   <td id="projectalign" style="padding-left: 0.5em;">
    <div id="projectname">Parallel IO
    </div>
+   <div id="projectbrief">Parallel File I/O for Scientific Computing</div>
   </td>
  </tr>
  </tbody>
@@ -89,6 +90,7 @@ $(document).ready(function(){initNavTree('structpio_1_1netcdf_1_1file_1_1exodus_
 <div class="header">
   <div class="summary">
 <a href="#pub-methods">Public Member Functions</a> &#124;
+<a href="#friends">Friends</a> &#124;
 <a href="structpio_1_1netcdf_1_1file_1_1exodus__file-members.html">List of all members</a>  </div>
   <div class="headertitle">
 <div class="title">pio::netcdf::file&lt; _Access &gt;::exodus_file Struct Reference</div>  </div>
@@ -97,18 +99,21 @@ $(document).ready(function(){initNavTree('structpio_1_1netcdf_1_1file_1_1exodus_
 <table class="memberdecls">
 <tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="pub-methods"></a>
 Public Member Functions</h2></td></tr>
-<tr class="memitem:ad636918c56d2310c9935bf3c05581cfa"><td class="memItemLeft" align="right" valign="top"><a id="ad636918c56d2310c9935bf3c05581cfa"></a>
-&#160;</td><td class="memItemRight" valign="bottom"><b>exodus_file</b> (<a class="el" href="structpio_1_1netcdf_1_1file.html">file</a> *base_file)</td></tr>
-<tr class="separator:ad636918c56d2310c9935bf3c05581cfa"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:ae91a6e05ae3e03ae12f4061a0490ea1e"><td class="memItemLeft" align="right" valign="top">READ <a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; std::vector&lt; std::string &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structpio_1_1netcdf_1_1file_1_1exodus__file.html#ae91a6e05ae3e03ae12f4061a0490ea1e">get_variables</a> () const</td></tr>
 <tr class="memdesc:ae91a6e05ae3e03ae12f4061a0490ea1e"><td class="mdescLeft">&#160;</td><td class="mdescRight">Copy data into memory for a given ExodusII variable.  <a href="#ae91a6e05ae3e03ae12f4061a0490ea1e">More...</a><br /></td></tr>
 <tr class="separator:ae91a6e05ae3e03ae12f4061a0490ea1e"><td class="memSeparator" colspan="2">&#160;</td></tr>
 <tr class="memitem:afc72e9075b6bb6bd3d5da008019a3a53"><td class="memItemLeft" align="right" valign="top">READ <a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; std::unordered_map&lt; std::string, std::vector&lt; double &gt; &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structpio_1_1netcdf_1_1file_1_1exodus__file.html#afc72e9075b6bb6bd3d5da008019a3a53">get_node_coordinates</a> (bool get_data=true) const</td></tr>
 <tr class="memdesc:afc72e9075b6bb6bd3d5da008019a3a53"><td class="mdescLeft">&#160;</td><td class="mdescRight">Copy the node coordinates into memory.  <a href="#afc72e9075b6bb6bd3d5da008019a3a53">More...</a><br /></td></tr>
 <tr class="separator:afc72e9075b6bb6bd3d5da008019a3a53"><td class="memSeparator" colspan="2">&#160;</td></tr>
-<tr class="memitem:a8d61aba8288ca856c16b251da5ca41be"><td class="memItemLeft" align="right" valign="top"><a id="a8d61aba8288ca856c16b251da5ca41be"></a>
-WRITE <a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; std::vector&lt; const <a class="el" href="structpio_1_1io_1_1promise.html">promise</a>&lt; <a class="el" href="namespacepio_1_1io.html#a274c30c2eb9dfe7762e52e40fd456d5eae0a0862398ccf49afa6c809d3832915c">io::access::wo</a>, <a class="el" href="structpio_1_1io_1_1type_3_01NC__DOUBLE_01_4.html">types::Double</a> &gt; &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><b>write_node_coordinates</b> (MPI_Comm comm, const std::unordered_map&lt; std::string, std::vector&lt; double &gt;&gt; &amp;data)</td></tr>
-<tr class="separator:a8d61aba8288ca856c16b251da5ca41be"><td class="memSeparator" colspan="2">&#160;</td></tr>
+<tr class="memitem:a93162c390710a6f24da25c1441d44e4d"><td class="memItemLeft" align="right" valign="top">WRITE <a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; std::vector&lt; std::shared_ptr&lt; const <a class="el" href="structpio_1_1io_1_1promise.html">promise</a>&lt; <a class="el" href="namespacepio_1_1io.html#a274c30c2eb9dfe7762e52e40fd456d5eae0a0862398ccf49afa6c809d3832915c">io::access::wo</a>, <a class="el" href="structpio_1_1io_1_1type_3_01NC__DOUBLE_01_4.html">types::Double</a> &gt; &gt; &gt; &gt;&#160;</td><td class="memItemRight" valign="bottom"><a class="el" href="structpio_1_1netcdf_1_1file_1_1exodus__file.html#a93162c390710a6f24da25c1441d44e4d">write_node_coordinates</a> (MPI_Comm comm, const std::unordered_map&lt; std::string, std::vector&lt; double &gt;&gt; &amp;data)</td></tr>
+<tr class="memdesc:a93162c390710a6f24da25c1441d44e4d"><td class="mdescLeft">&#160;</td><td class="mdescRight">Write the corodinate node data into the exodus file.  <a href="#a93162c390710a6f24da25c1441d44e4d">More...</a><br /></td></tr>
+<tr class="separator:a93162c390710a6f24da25c1441d44e4d"><td class="memSeparator" colspan="2">&#160;</td></tr>
+</table><table class="memberdecls">
+<tr class="heading"><td colspan="2"><h2 class="groupheader"><a name="friends"></a>
+Friends</h2></td></tr>
+<tr class="memitem:a686a90482e62dd1618201a3c79f9aae6"><td class="memItemLeft" align="right" valign="top"><a id="a686a90482e62dd1618201a3c79f9aae6"></a>
+class&#160;</td><td class="memItemRight" valign="bottom"><b>file</b></td></tr>
+<tr class="separator:a686a90482e62dd1618201a3c79f9aae6"><td class="memSeparator" colspan="2">&#160;</td></tr>
 </table>
 <h2 class="groupheader">Member Function Documentation</h2>
 <a id="afc72e9075b6bb6bd3d5da008019a3a53"></a>
@@ -160,6 +165,45 @@ template&lt;io::access _Access&gt; </div>
 
 <p>Copy data into memory for a given ExodusII variable. </p>
 <dl class="todo"><dt><b><a class="el" href="todo.html#_todo000004">Todo:</a></b></dt><dd>The returned errors are not specific enough to be super helpful </dd></dl>
+
+</div>
+</div>
+<a id="a93162c390710a6f24da25c1441d44e4d"></a>
+<h2 class="memtitle"><span class="permalink"><a href="#a93162c390710a6f24da25c1441d44e4d">&#9670;&nbsp;</a></span>write_node_coordinates()</h2>
+
+<div class="memitem">
+<div class="memproto">
+<div class="memtemplate">
+template&lt;io::access _Access&gt; </div>
+      <table class="memname">
+        <tr>
+          <td class="memname"><a class="el" href="structpio_1_1io_1_1result.html">result</a>&lt; std::vector&lt; std::shared_ptr&lt; const <a class="el" href="structpio_1_1io_1_1promise.html">P</a> &gt; &gt; &gt; <a class="el" href="structpio_1_1netcdf_1_1file.html">pio::netcdf::file</a>&lt; _Access &gt;::exodus_file::write_node_coordinates </td>
+          <td>(</td>
+          <td class="paramtype">MPI_Comm&#160;</td>
+          <td class="paramname"><em>comm</em>, </td>
+        </tr>
+        <tr>
+          <td class="paramkey"></td>
+          <td></td>
+          <td class="paramtype">const std::unordered_map&lt; std::string, std::vector&lt; double &gt;&gt; &amp;&#160;</td>
+          <td class="paramname"><em>data</em>&#160;</td>
+        </tr>
+        <tr>
+          <td></td>
+          <td>)</td>
+          <td></td><td></td>
+        </tr>
+      </table>
+</div><div class="memdoc">
+
+<p>Write the corodinate node data into the exodus file. </p>
+<dl class="params"><dt>Parameters</dt><dd>
+  <table class="params">
+    <tr><td class="paramname">comm</td><td>The MPI comm channel to use for PIO </td></tr>
+  </table>
+  </dd>
+</dl>
+<dl class="section return"><dt>Returns</dt><dd>List of shared pointers containing the promise for each data region </dd></dl>
 
 </div>
 </div>
