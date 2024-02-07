@@ -54,6 +54,7 @@ error_code::_to_string(code c)
     case code::VariableCountNotSet:         return "variable count not set for this scope";
     case code::VariableCountAlreadySet:     return "variable count for this scope has already been assigned";
     case code::ScopeNotSupported:           return "given scope type not supported";
+    case code::DimensionSizeMismatch:       return "dimension size mismatch";
     default: return "Error error";
     }
 }
@@ -317,6 +318,37 @@ file<_Word, _Access>::set_entity_count_per_node(
 }
 FWD_DEC_WRITE(unsigned long, result<void>, set_entity_count_per_node, const typename block<unsigned long>::header&, const int*, std::optional<std::size_t>);
 
+template<typename _Word, io::access _Access>
+template<typename>
+result<void>
+file<_Word, _Access>::set_coordinate_names(
+    const std::vector<std::string>& names)
+{
+    const auto info_res = get_info();
+    if (!info_res) return { info_res.error() };
+
+    if (names.size() != info_res.value().num_dim)
+        return { error_code::DimensionSizeMismatch };
+
+    std::vector<char*> name_ptr(info_res.value().num_dim);
+    for (uint32_t i = 0; i < name_ptr.size(); i++)
+    {
+        name_ptr[i] = reinterpret_cast<char*>(std::calloc(MAX_NAME_LENGTH, 1));
+        strcpy(name_ptr[i], names[i].c_str());
+    }
+    
+    const auto free = [&]()
+    {
+        for (auto*& name : name_ptr) std::free(name);
+    };
+
+    const auto err = ex_put_coord_names(_handle, name_ptr.data());
+    free();
+    if (err < 0) return exodus_error(err);
+    return { };
+}
+FWD_DEC_WRITE(unsigned long, result<void>, set_coordinate_names, const std::vector<std::string>&);
+
 #pragma endregion WRITE
 
 #pragma region READ
@@ -392,6 +424,49 @@ file<_Word, _Access>::get_node_coordinates() const
     return { std::move(c) };
 }
 FWD_DEC_READ(unsigned long, result<coordinates<unsigned long>>, get_node_coordinates);
+
+
+template<typename _Word, io::access _Access>
+template<typename>
+result<std::vector<std::string>>
+file<_Word, _Access>::get_coordinate_names() const
+{
+    const auto res = get_info();
+    if (!res) return { res.error() };
+    if (!res.value().num_dim) return { std::vector<std::string>() };
+
+    const auto& dim = res.value().num_dim;
+    char** names = [&]()
+    {
+        auto** ptr = reinterpret_cast<char**>(std::calloc(dim, sizeof(char*)));
+        for (uint32_t i = 0; i < dim; i++)
+            ptr[i] = reinterpret_cast<char*>(std::calloc(MAX_NAME_LENGTH, 1));
+        return ptr;
+    }();
+
+    const auto free = [&]()
+    {
+        for (uint32_t i = 0; i < dim; i++)
+            std::free(names[i]);
+        std::free(names);
+    };
+
+    const auto err = ex_get_coord_names(_handle, names);
+    if (err < 0)
+    {
+        free();
+        return { exodus_error(err) };
+    }
+
+    std::vector<std::string> r(dim);
+    for (uint32_t i = 0; i < dim; i++)
+        for (uint32_t j = 0; j < MAX_NAME_LENGTH; j++)
+            if (names[i][j]) r[i] += names[i][j];
+
+    free();
+    return { std::move(r) };
+}
+FWD_DEC_READ(unsigned long, result<std::vector<std::string>>, get_coordinate_names);
 
 template<typename _Word, io::access _Access>
 template<typename>

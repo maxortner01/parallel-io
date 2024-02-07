@@ -95,7 +95,8 @@ namespace pio::netcdf
             DimensionDoesntExist,
             NullData,
             NullFile,
-            VariableDoesntExist
+            VariableDoesntExist,
+            FailedTaskCreation
         };
 
         /**
@@ -135,20 +136,36 @@ namespace pio::netcdf
     template<io::access _Access, typename... _Types>
     using promise = io::promise<_Access, error_code, _Types...>;
 
-    /// A NetCDF file
+    /// \brief A NetCDF file
+    /// \todo Add a file_type enum that specifies whether the currently contained exodus_file struct exists or not
     template<io::access _Access>
     struct file
     {
         struct exodus_file
         {
-            exodus_file(file* base_file);
-
             /// \brief Copy data into memory for a given ExodusII variable
             /// \todo The returned errors are not specific enough to be super helpful
             READ result<std::vector<std::string>>
             get_variables() const;
 
+            /// \brief Copy the node coordinates into memory
+            /// \param get_data Whether or not to read the actual node coordinates, or just read the names
+            /// \note This is a blocking method
+            /// \todo Should we determine if its 64/32bit?
+            READ result<std::unordered_map<std::string, std::vector<double>>>
+            get_node_coordinates(bool get_data = true) const;
+
+            /// \brief Write the corodinate node data into the exodus file
+            /// \param comm The MPI comm channel to use for PIO
+            /// \return List of shared pointers containing the \ref promise for each data region
+            WRITE result<std::vector<std::shared_ptr<const promise<io::access::wo, types::Double>>>>
+            write_node_coordinates(MPI_Comm comm, const std::unordered_map<std::string, std::vector<double>>& data);
+
         private:
+            friend class file;
+
+            exodus_file(file* base_file);
+
             file* _file;
         } exodus;
 

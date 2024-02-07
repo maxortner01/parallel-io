@@ -24,7 +24,8 @@ namespace pio::exodus
     template<typename _Word>
     using real = std::conditional_t<sizeof(_Word) == 8, double, float>;
     
-    /// 3D coordinates
+    /// \brief 3D coordinates
+    /// \todo Maybe this should be a vector of pairs of strings and vectors of real-numbers, so we can pair the name up with the data
     template<typename _Word>
     struct coordinates
     {
@@ -70,7 +71,8 @@ namespace pio::exodus
             WrongBlockType,
             VariableCountNotSet,
             VariableCountAlreadySet,
-            ScopeNotSupported
+            ScopeNotSupported,
+            DimensionSizeMismatch
         };
 
         /**
@@ -153,10 +155,6 @@ namespace pio::exodus
         WRITE result<void>
         set_variable_name(scope s, const std::string& name);
 
-        // strongly recommended the count is passed in if using
-        // dynamically allocated arrays, otherwise you risk an overflow
-        // and possible seg fault if the array size is not correct
-
         /// Set the connectivity for given block. \note count is optional but strongly recommended for error checking
         WRITE result<void>
         set_block_connectivity(const block_header& block, const int* connect, std::optional<std::size_t> count = std::nullopt);
@@ -164,6 +162,9 @@ namespace pio::exodus
         /// Set the entity count per node for polyhedra. \note count is optional but strongly recommended for error checking \note only needed if block type is "nsided"
         WRITE result<void>
         set_entity_count_per_node(const block_header& block, const int* connect, std::optional<std::size_t> count  = std::nullopt);
+
+        WRITE result<void>
+        set_coordinate_names(const std::vector<std::string>& names);
 
         /* READ/READ-WRITE */
         /// Get global meta-data
@@ -181,6 +182,9 @@ namespace pio::exodus
         /// Get the coordinate information
         READ result<coordinates<_Word>>
         get_node_coordinates() const;
+
+        READ result<std::vector<std::string>>
+        get_coordinate_names() const;
 
         /// Get all the time-step values
         READ result<std::vector<_Word>>

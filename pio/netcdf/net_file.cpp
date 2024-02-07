@@ -45,6 +45,7 @@ std::string error_code::_to_string(code c)
     case NullData:              return "Data Pointer is Null";
     case NullFile:              return "File reference is corrupted";
     case VariableDoesntExist:   return "Requested variable name doesn't exist";
+    case FailedTaskCreation:    return "Failed to create tasks";
     default: return "";
     }
 }
@@ -97,6 +98,131 @@ file<_Access>::exodus_file::get_variables() const
     return { netcdf::format(var.template get_data<0>(), var_count, len_name) };
 }
 FWD_DEC_READ(result<std::vector<std::string>>, exodus_file::get_variables);
+
+using coord_values = std::unordered_map<std::string, std::vector<double>>;
+template<io::access _Access>
+template<typename>
+result<coord_values>
+file<_Access>::exodus_file::get_node_coordinates(bool get_data) const
+{
+    if (!_file) return { error_code::NullFile };
+    const auto info = _file->get_dimension_lengths();
+    if (!info) return { info.error() };
+
+    const auto str_len_name = [&]() -> std::string
+    {
+        if (info->count("len_name")) return "len_name";
+        if (info->count("len_string")) return "len_string";
+        return "";
+    }();
+
+    if (!info->count("num_dim") || !str_len_name.size()) return { error_code::DimensionDoesntExist };
+    
+    // get dimension of file
+    const auto& dim = info->at("num_dim");
+    const auto& len_name = info->at(str_len_name);
+
+    // read in coor_names
+    const auto promise = _file->get_variable_values<types::Char>("coor_names", { 0, 0 }, { dim, len_name });
+    if (!promise) return { promise.error() };
+    promise.wait();
+    const auto names = format(promise.template get_data<0>(), dim, len_name);
+
+    coord_values values;
+    for (const auto& name : names) values[name];
+
+    if (!get_data) return { std::move(values) };
+
+    // check cdf variables for coord (if it's the old format)
+    const auto cdf_vars = _file->variable_names();
+    if (!cdf_vars) return { cdf_vars.error() };
+    const auto it = std::find(cdf_vars->begin(), cdf_vars->end(), "coord");
+    const bool old = (it != cdf_vars->end());
+
+    if (!info->count("num_nodes")) return { error_code::DimensionDoesntExist };
+    const auto& num_nodes = info->at("num_nodes");
+
+    if (old)
+    {
+        // read from variable called coord and split data up        
+        const auto value_promise = _file->get_variable_values<types::Double>("coord", { 0, 0 }, { dim, num_nodes });
+        if (!value_promise) return { value_promise.error() };
+        
+        value_promise.wait();
+        const auto data = value_promise.template get_data<0>();
+
+        for (uint32_t i = 0; i < names.size(); i++)
+            std::copy(data.begin() + i * num_nodes, data.begin() + (i + 1) * num_nodes, std::back_inserter(values.at(names[i])));
+    }
+    else
+    {
+        // need to make sure they exist
+        for (const auto& name : names)
+        {
+            if (std::find(cdf_vars->begin(), cdf_vars->end(), "coord" + name) == cdf_vars->end())
+                return { error_code::VariableDoesntExist };
+
+            const auto value_promise = _file->get_variable_values<types::Double>("coord" + name, { 0 }, { num_nodes });
+            if (!value_promise) return { value_promise.error() };
+            
+            value_promise.wait();
+            const auto data = value_promise.template get_data<0>();
+
+            std::copy(data.begin(), data.end(), std::back_inserter(values.at(name)));
+        }
+    }
+
+    return { std::move(values) };
+}
+FWD_DEC_READ(result<coord_values>, exodus_file::get_node_coordinates, bool);
+
+using P = promise<io::access::wo, types::Double>;
+template<io::access _Access>
+template<typename>
+result<std::vector<std::shared_ptr<const P>>>
+file<_Access>::exodus_file::write_node_coordinates(
+    MPI_Comm comm, 
+    const coord_values& data)
+{
+    if (!_file) return { error_code::NullFile };
+
+    // the list needs to be the same for all processes, so we need to sort to
+    // get over the "unordered" part of the map
+    const auto names = [&]()
+    { 
+        std::vector<std::string> r;
+        r.reserve(data.size());
+        for (const auto& p : data) r.push_back(p.first);
+        std::sort(r.begin(), r.end());
+        return r;
+    }();
+    
+    io::distributor dist(comm);
+    for (uint32_t i = 0; i < names.size(); i++)
+    {
+        io::distributor::volume volume{0};
+        volume.data_index = i;
+        volume.data_type = NC_DOUBLE;
+        volume.dimensions.push_back(data.at(names[i]).size());
+        dist.data_volumes.push_back(volume);
+    }
+
+    const auto subvols = dist.get_tasks();
+    if (!subvols) return { error_code::FailedTaskCreation };
+
+    std::vector<std::shared_ptr<const P>> promises;
+    for (const auto& subvol : *subvols)
+    {
+        const auto& coord_name = names[dist.data_volumes[subvol.volume_index].data_index];
+        const auto& coords = data.at(coord_name);
+
+        const auto promise = _file->write_variable<types::Double>("coord" + coord_name, &coords[0] + subvol.offsets[0], subvol.counts[0], subvol.offsets, subvol.counts);
+        promises.push_back(std::make_shared<const P>(promise));
+    }
+
+    return { std::move(promises) };
+}
+FWD_DEC_WRITE(result<std::vector<std::shared_ptr<const P>>>, exodus_file::write_node_coordinates, MPI_Comm, const coord_values&);
 
 /* NETCDF FILE IMPLEMENTATION */
 

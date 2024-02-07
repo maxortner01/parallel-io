@@ -16,6 +16,7 @@ template<typename W>
 void
 write_coloring(
     const std::string& name,
+    const std::string& input,
     const uint32_t& dim,
     const std::vector<exodus::block<W>>& blocks,
     const std::vector<std::size_t>& colors)
@@ -60,9 +61,6 @@ write_coloring(
     netcdf::file<io::access::rw> file(name);
     assert(file);
 
-    // would be nice to encapsulate this exodus logic into the pio class
-    //file.get_variable_info("name_elem_var").value().dimensions[0].name
-
     const auto var_res = file.exodus.get_variables();
     if (!var_res)
     {
@@ -93,6 +91,34 @@ write_coloring(
     }
     
     // here's where we read/write coordinate information !!!
+    {
+        netcdf::file<io::access::ro> in(input);
+        const auto coords = in.exodus.get_node_coordinates();
+        if (!coords)
+        {
+            std::cout << "error reading coords: " << coords.error().message() << "\n";
+            assert(coords);
+        }
+
+        const auto res = file.exodus.write_node_coordinates(MPI_COMM_WORLD, *coords);
+        if (!res)
+        {
+            std::cout << "error writing coords: " << res.error().message() << "\n";
+            assert(res);
+        }
+        else
+        {
+            for (const auto& p : *res) 
+            {
+                p->wait();
+                if (!p->good())
+                {
+                    std::cout << "promise error: " << p->error().message() << "\n";
+                    assert(p->good());
+                }
+            }
+        }
+    }
 
     using promise = netcdf::promise<io::access::wo, io::type<TYPE>>;
     std::vector<promise> promises;
@@ -169,6 +195,10 @@ int run()
         check(file.set_variable_name(exodus::scope::element, "color")); // variable index 1
         check(file.write_time_step(0));
 
+        const auto coord_res = md.get_coordinate_names();
+        assert(coord_res);
+        file.set_coordinate_names(coord_res.value());
+
         // set the block information
         for (const auto& block : blocks)
         {
@@ -194,9 +224,9 @@ int run()
 
     for (const auto& block : blocks)
         for (uint32_t i = 0; i < block.info.elements; i++)
-            colors.push_back(colors.size() + 1);
+            colors.push_back(colors.size());
 
-    write_coloring<word_t>(output, md_info.num_dim, blocks, colors);
+    write_coloring<word_t>(output, mesh_file, md_info.num_dim, blocks, colors);
 
     return 0;
 }
